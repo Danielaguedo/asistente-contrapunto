@@ -1,78 +1,111 @@
 import streamlit as st
-from music21 import *
-from reglas_contrapunto import *
+import firebase_admin
+from firebase_admin import credentials
+import autenticacion
+import json
+import tempfile
+from music21 import converter, interval
+from PIL import Image
+import os
+from primera_especie.analisis import seccion_analizar_ejercicio
+import material_didactico
+import gestion_alumnos
+import cookies
 
-def analizar_contrapunto(archivo):
-    try:
-        # Cargar y procesar la partitura
-        print (archivo)
-        score = converter.parse(archivo)
-        soprano = score.parts[0].flatten().notes
-        bajo = score.parts[1].flatten().notes
-        
-        errores = []
-        sugerencias = []
-        intervalo_anterior = None
-        nota_s_ant, nota_b_ant = None, None
+# ===============================================
+# CONFIGURACIÓN DE LA PÁGINA
+# ===============================================
+st.set_page_config(page_title="Analizador de Contrapunto", layout="wide")
 
-        # Aplicar reglas a cada nota
-        for i in range(len(soprano)):
-            s, b = soprano[i], bajo[i]
-            intervalo = interval.Interval(b, s)
-            
-            # Regla 1: Consonancias
-            if not verificar_consonancias(s, b):
-                errores.append(f"Compás {s.measureNumber}: Intervalo no consonante ({intervalo.name})")
-                
-            # Regla 2: Quintas/Octavas paralelas
-            if buscar_quintas_octavas_paralelas(intervalo_anterior, intervalo):
-                errores.append(f"Compás {s.measureNumber}: Quintas/octavas paralelas")
-            
-            # Regla 3: Movimiento directo prohibido
-            if movimiento_directo_prohibido(nota_s_ant, s, nota_b_ant, b):
-                errores.append(f"Compás {s.measureNumber}: Movimiento directo prohibido")
-            
-            intervalo_anterior = intervalo
-            nota_s_ant, nota_b_ant = s, b
+# ===============================================
+# CONFIGURACIÓN FIREBASE (Reemplaza con tu JSON)
+# ===============================================
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-creds.json")
+    firebase_admin.initialize_app(cred)
 
-        # Otras reglas
-        errores += verificar_inicio_final(soprano, bajo)
-        
-        if notas_rep := detectar_notas_repetidas(soprano):
-            errores.extend([f"Compás {soprano[i].measureNumber}: Nota repetida en soprano" for i in notas_rep])
-            
-        if notas_rep := detectar_notas_repetidas(bajo):
-            errores.extend([f"Compás {bajo[i].measureNumber}: Nota repetida en bajo" for i in notas_rep])
+# ===============================================
+# DISEÑO PERSONALIZADO (CSS)
+# ===============================================
+def cargar_estilos():
+    st.markdown("""
+    <style>
+        .main {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .stButton>button {
+            background: #4A90E2;
+            color: white;
+            border-radius: 8px;
+            padding: 10px 24px;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin: 1rem 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-        # Sugerencias estilísticas
-        sugerencias = [
-            "¿Buscas un efecto dramático? Las quintas paralelas se usan en el Romanticismo.",
-            "Las cuartas justas pueden funcionar si se resuelven en terceras."
-        ]
-        
-        return errores, sugerencias
-    
-    except Exception as e:
-        return [f"Error de análisis: {str(e)}"], []
+# ===============================================
+# FUNCIÓN PARA CARGAR EL ARCHIVO MUSICXML
+# ===============================================
+def cargar_archivo():
+    archivo_subido = st.file_uploader("Sube un archivo MusicXML", type=["xml", "musicxml"], key="file_uploader_musicxml")
+    if archivo_subido:
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".musicxml") as temp_file:
+                temp_file.write(archivo_subido.getvalue())
+                temp_file_path = temp_file.name
+            score = converter.parse(temp_file_path)
+            seccion_analizar_ejercicio(score)
+        except Exception as e:
+            st.error(f"Ocurrió un error al procesar la partitura: {str(e)}")
+def main():
+    cookie_manager = cookies.inicializar_cookies()
 
-# Interfaz web
-st.set_page_config(page_title="Analizador de Contrapunto")
-st.title("🎼 Asistente de Primera Especie")
+    if cookies.obtener_cookie(cookie_manager, "autenticado") == "true":
+        st.session_state["autenticado"] = True
+    else:
+        st.session_state["autenticado"] = False
 
-archivo = st.file_uploader("Sube tu partitura MusicXML", type=["xml", "musicxml"])
-if archivo:
-    errores, sugerencias = analizar_contrapunto(archivo)
-    
-    with st.expander("🔍 Resultados del Análisis", expanded=True):
-        if errores:
-            st.error("## Errores Técnicos")
-            for error in errores:
-                print (error)
-                st.write(f"- {error}")
-        else:
-            st.success("✅ ¡Perfecto! No se encontraron errores técnicos.")
-        
-        if sugerencias:
-            st.info("## Sugerencias Creativas")
-            for sug in sugerencias:
-                st.write(f"- {sug}")
+    # ... (resto del código)
+# ===============================================
+# INTERFAZ PRINCIPAL (Solo para autenticados)
+# ===============================================
+def interfaz_principal():
+    st.title(" Asistente de Contrapunto")
+    st.container()
+    st.header("Bienvenido, Profesor!")
+    st.write("Explora nuestras herramientas avanzadas:")
+
+    opcion = st.sidebar.selectbox("Menú", ["Analizar Ejercicio", "Material Didáctico", "Gestión de Alumnos"])
+
+    if opcion == "Analizar Ejercicio":
+        st.header(" Análisis de Contrapunto con MusicXML")
+        cargar_archivo()
+
+# ===============================================
+# FLUJO PRINCIPAL DE LA APLICACIÓN
+# ===============================================
+def main():
+    cargar_estilos()
+    if 'autenticado' not in st.session_state:
+        st.session_state['autenticado'] = False
+    if not st.session_state['autenticado']:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            autenticacion.mostrar_login()
+        with col2:
+            autenticacion.mostrar_registro()
+    else:
+        interfaz_principal()
+        if st.sidebar.button(" Cerrar Sesión"):
+            st.session_state['autenticado'] = False
+            st.experimental_rerun()
+
+if __name__ == "__main__":
+    main()
+
