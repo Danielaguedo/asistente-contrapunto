@@ -1,4 +1,4 @@
-#!C:\Users\Mirko\OneDrive\Escritorio\asistente-contrapunto\venv\Scripts\python.exe
+#!C:\proyectos\asistente-contrapunto\venv\Scripts\python.exe
 # -*- coding: utf-8 -*-
 # Copyright 2024 Google LLC
 #
