@@ -1,163 +1,171 @@
-# exportar_pdf.py
-from reportlab.lib.pagesizes import letter # Cambiado a portrait para mejor lectura de texto
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, Spacer
-from reportlab.lib.colors import red, black, navy, grey
+# exportar_pdf.py (Versión Estable - Solo Texto, Fondo Marfil, Colores y Compases)
 from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import letter, landscape # Mantenemos landscape por ahora
+from reportlab.lib import colors
+import datetime
+import re
 import os
-# from PIL import Image # No se usa si imagen_partitura_png es None
-# import cairosvg # No se usa en generar_pdf_analisis
+import traceback 
 
-def generar_pdf_analisis(ejercicio_data, imagen_partitura_png=None):
-    """
-    Genera un PDF con el análisis del ejercicio de contrapunto usando ReportLab.
-    Incluye errores de reglas y observaciones analíticas detalladas.
-    """
+# No necesitamos svglib ni nada de graphics.shapes para esta versión
+# try:
+#     from svglib.svglib import svg2rlg
+#     SVGLIB_AVAILABLE = True
+# except ImportError:
+#     SVGLIB_AVAILABLE = False
+#     def svg2rlg(path): return None 
+# from reportlab.graphics.shapes import Drawing, Group 
+
+
+def _header_footer_with_background(canvas, doc):
+    canvas.saveState()
+    ivory_color = colors.HexColor('#FFFAF0') 
+    canvas.setFillColor(ivory_color)
+    canvas.rect(0, 0, doc.width + doc.leftMargin + doc.rightMargin,
+                doc.height + doc.topMargin + doc.bottomMargin,
+                stroke=0, fill=1)
+    footer_style_dict = dict(name='FooterStyleEstable', fontName='Helvetica', fontSize=8,
+                              textColor=colors.darkgrey, alignment=TA_CENTER)
+    footer_paragraph_style = ParagraphStyle(**footer_style_dict)
+    footer_text = f"Fecha del Análisis: {doc.analysis_date_str} - Página {canvas.getPageNumber()}"
+    p_footer = Paragraph(footer_text, footer_paragraph_style)
+    p_footer.wrapOn(canvas, doc.width, doc.bottomMargin)
+    p_footer.drawOn(canvas, doc.leftMargin, 0.5 * inch)
+    canvas.restoreState()
+
+def generar_pdf_analisis_estable(ejercicio_data, ruta_svg_partitura=None): # ruta_svg_partitura se ignora aquí
     buffer = BytesIO()
-    # Usar orientación vertical (portrait) para el informe de análisis
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-
-    # Estilos
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), # Mantenemos landscape
+                            rightMargin=0.75*inch, leftMargin=0.75*inch,
+                            topMargin=0.75*inch, bottomMargin=0.75*inch)
+    
+    doc.analysis_date_str = ejercicio_data.get('fecha', datetime.date.today().strftime("%Y-%m-%d"))
     styles = getSampleStyleSheet()
-    style_h1 = styles['h1']
-    style_h2 = styles['h2']
-    style_h2.textColor = navy
-    style_normal = styles['Normal']
-    style_normal.leading = 14 # Espacio entre líneas
-    style_error_marker = styles['Normal'] # Para el marcador X
-    style_error_marker.textColor = red
-    style_error_text = styles['Normal'] # Para el texto del error
-    style_error_text.leading = 14
-    style_info_marker = styles['Normal'] # Para el marcador i
-    style_info_marker.textColor = black # O un gris oscuro
-    style_info_text = styles['Normal'] # Para el texto de observación
-    style_info_text.leading = 14
-    style_warning_marker = styles['Normal']
-    style_warning_marker.textColor = red # O un naranja/amarillo oscuro
-    style_warning_text = styles['Normal']
-    style_warning_text.leading = 14
 
-
-    # Coordenadas y márgenes
-    margin = 0.75 * inch
-    y_position = height - margin
-    max_width_content = width - 2 * margin # Ancho disponible para Paragraphs
-
-    def check_new_page(current_y, element_height):
-        """ Revisa si se necesita una nueva página y la crea si es así. """
-        nonlocal y_position # Necesario para modificar y_position de la función externa
-        nonlocal c # Necesario para modificar c de la función externa
-        if current_y - element_height < margin:
-            c.showPage()
-            y_position = height - margin
-            # Podrías añadir un pequeño header/footer en cada página si lo deseas
-            # c.setFont("Helvetica", 8)
-            # c.drawCentredString(width / 2, margin / 2, f"Página {c.getPageNumber()}")
-            return True # Indica que se creó una nueva página
-        return False
-
-    # Título Principal
-    p_titulo = Paragraph("Análisis Completo del Ejercicio", style_h1)
-    p_w, p_h = p_titulo.wrapOn(c, max_width_content, height)
-    if check_new_page(y_position, p_h): pass # Solo para asegurar y_position
-    p_titulo.drawOn(c, margin, y_position - p_h)
-    y_position -= (p_h + 0.2 * inch)
-
-    # Información del ejercicio
-    c.setFont("Helvetica", 10)
-    info_text = f"<b>Especie:</b> {ejercicio_data.get('especie', 'No especificada')}<br/>" \
-                f"<b>Fecha del Análisis:</b> {ejercicio_data.get('fecha', 'No especificada')}"
-    p_info = Paragraph(info_text, style_normal)
-    p_w, p_h = p_info.wrapOn(c, max_width_content, height)
-    if check_new_page(y_position, p_h): pass
-    p_info.drawOn(c, margin, y_position - p_h)
-    y_position -= (p_h + 0.2 * inch)
+    # --- Definición de Estilos (Consistentes con los últimos que te gustaron) ---
+    main_title_color = colors.HexColor('#002244'); section_heading_color = main_title_color
+    section_heading2_color = colors.HexColor('#335577'); body_text_main_color = colors.HexColor('#333333')
     
-    c.line(margin, y_position, width - margin, y_position)
-    y_position -= 0.2 * inch
+    styles.add(ParagraphStyle(name='MyMainTitleEstable', fontName='Times-Bold', fontSize=20,textColor=main_title_color, alignment=TA_CENTER, spaceAfter=0.2*inch, spaceBefore=0.1*inch))
+    styles.add(ParagraphStyle(name='MyExerciseInfoEstable', fontName='Helvetica', fontSize=9, leading=12,textColor=colors.dimgrey, alignment=TA_LEFT, spaceAfter=0.15*inch))
+    
+    # Usaremos el 'Heading1' base y lo modificaremos directamente si es necesario,
+    # o crearemos uno nuevo para asegurar que no haya conflictos si se usa en otro lado.
+    # Por simplicidad, vamos a crear uno nuevo para los títulos de sección.
+    styles.add(ParagraphStyle(name='MySectionHeadingEstable', fontName='Times-Bold', fontSize=14, leading=18, textColor=section_heading_color, alignment=TA_LEFT, spaceBefore=0.2*inch, spaceAfter=0.1*inch, keepWithNext=1))
+    
+    styles.add(ParagraphStyle(name='MySectionHeading2Estable', fontName='Times-BoldItalic', fontSize=11, leading=14,textColor=section_heading2_color, alignment=TA_LEFT, spaceBefore=0.1*inch, spaceAfter=0.05*inch, leftIndent=0.2*inch, keepWithNext = 1))
+    
+    body_text_style_base = styles['Normal'] # Usamos 'Normal' como base
+    body_text_style_base.fontName = 'Helvetica'; body_text_style_base.fontSize = 9; body_text_style_base.leading = 12; body_text_style_base.textColor = body_text_main_color; body_text_style_base.alignment = TA_JUSTIFY; body_text_style_base.spaceAfter = 0.05*inch
+    styles.add(ParagraphStyle(name='MyBodyTextEstable', parent=body_text_style_base)) # Creamos un alias por si acaso
 
-    # Sección de Errores de Reglas
-    p_errores_titulo = Paragraph("<u>Errores de Reglas de Contrapunto:</u>", style_h2)
-    p_w, p_h = p_errores_titulo.wrapOn(c, max_width_content, height)
-    if check_new_page(y_position, p_h): pass
-    p_errores_titulo.drawOn(c, margin, y_position - p_h)
-    y_position -= (p_h + 0.1 * inch)
+    styles.add(ParagraphStyle(name='MySuccessTextEstable', parent=styles['MyBodyTextEstable'], textColor=colors.HexColor('#C77700'),fontName='Helvetica-Bold')) # Naranja oscuro
+    styles.add(ParagraphStyle(name='MyWarningTextEstable', parent=styles['MyBodyTextEstable'], textColor=colors.HexColor('#A02C2C'), fontName='Helvetica-Bold')) # Rojo oscuro
 
+    styles.add(ParagraphStyle(name='MyErrorListItemEstable', fontName='Helvetica', fontSize=9, leading=12,textColor=colors.HexColor('#A02C2C'), leftIndent=0.2*inch, bulletIndent=0, bulletText='❌ ', spaceAfter=1))
+    
+    base_info_list_style_name = 'BaseInfoListItemEstable'
+    styles.add(ParagraphStyle(name=base_info_list_style_name, fontName='Helvetica', fontSize=8, leading=11,textColor=body_text_main_color, leftIndent=0.2*inch, bulletIndent=0, bulletText='• ', spaceAfter=1))
+    
+    styles.add(ParagraphStyle(name='ContraryMovementStyleEstable', parent=styles[base_info_list_style_name], textColor=colors.HexColor('#B9770E'))) 
+    styles.add(ParagraphStyle(name='ParallelMovementStyleEstable', parent=styles[base_info_list_style_name], textColor=colors.HexColor('#943126'))) 
+    styles.add(ParagraphStyle(name='OtherMovementStyleEstable', parent=styles[base_info_list_style_name], textColor=colors.HexColor('#4A4A4A'))) 
+    styles.add(ParagraphStyle(name='MeasureInfoSubtleEstable', fontName='Helvetica-Oblique', fontSize=7,textColor=colors.dimgrey, leading=8, leftIndent=0.4*inch, spaceBefore=-1, spaceAfter=1))
+
+    story = []
+
+    story.append(Paragraph("Análisis de Ejercicio de Contrapunto", styles['MyMainTitleEstable']))
+    info_text_data = f"<b>Especie:</b> {ejercicio_data.get('especie', 'No especificada')}<br/>" \
+                     f"<b>Fecha del Análisis:</b> {doc.analysis_date_str}"
+    story.append(Paragraph(info_text_data, styles['MyExerciseInfoEstable']))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey, spaceBefore=0.1*inch, spaceAfter=0.2*inch))
+
+    # --- SECCIÓN DE PARTITURA SVG ELIMINADA ---
+
+    story.append(Paragraph("Diagnóstico General", styles['MySectionHeadingEstable']))
     errores = ejercicio_data.get("errores", [])
+    evaluacion_general_texto = ejercicio_data.get("evaluacion", "Evaluación no disponible.")
+    if not errores:
+        story.append(Paragraph(f"🎉 ¡Excelente! {evaluacion_general_texto}", styles['MySuccessTextEstable']))
+    else:
+        story.append(Paragraph(f"⚠️ Atención: {evaluacion_general_texto}", styles['MyWarningTextEstable']))
+    story.append(Spacer(1, 0.1*inch))
+
     if errores:
+        story.append(Paragraph("Correcciones Necesarias: Errores de Reglas", styles['MySectionHeadingEstable']))
         for error_msg in errores:
-            # Usar una tabla de un solo renglón para alinear el marcador y el texto
-            error_paragraph = Paragraph(f"❌ {error_msg}", style_error_text)
-            p_w, p_h = error_paragraph.wrapOn(c, max_width_content - 0.2*inch, height)
-            if check_new_page(y_position, p_h): 
-                 # Repetir título de sección si se desea en nueva página
-                p_temp_title = Paragraph("<u>Errores de Reglas (continuación):</u>", style_h2)
-                p_w_t, p_h_t = p_temp_title.wrapOn(c,max_width_content, height)
-                p_temp_title.drawOn(c, margin, y_position - p_h_t); y_position -= (p_h_t + 0.1 * inch)
-            error_paragraph.drawOn(c, margin + 0.2*inch, y_position - p_h)
-            y_position -= (p_h + 0.05 * inch)
-    else:
-        p_no_errores = Paragraph("🎉 ¡No se encontraron errores en las reglas de contrapunto!", style_normal)
-        p_w, p_h = p_no_errores.wrapOn(c, max_width_content, height)
-        if check_new_page(y_position, p_h): pass
-        p_no_errores.drawOn(c, margin + 0.2*inch, y_position - p_h)
-        y_position -= (p_h + 0.1 * inch)
-    
-    y_position -= 0.3 * inch 
+            story.append(Paragraph(error_msg, styles['MyErrorListItemEstable']))
+        story.append(Spacer(1, 0.1*inch))
 
-    # Sección de Observaciones Analíticas Detalladas
     observaciones = ejercicio_data.get("observaciones", [])
-    if observaciones:
-        p_obs_titulo = Paragraph("<u>Análisis Descriptivo Detallado:</u>", style_h2)
-        p_w, p_h = p_obs_titulo.wrapOn(c, max_width_content, height)
-        if check_new_page(y_position, p_h): pass
-        p_obs_titulo.drawOn(c, margin, y_position - p_h)
-        y_position -= (p_h + 0.1 * inch)
-
-        for obs_line in observaciones:
-            texto_obs_formateado = obs_line
-            current_text_style = style_info_text
+    mov_melodico_violin_data, mov_melodico_viola_data, mov_entre_voces_data, patrones_especificos_data = [], [], [], []
+    current_section = None
+    measure_pattern = re.compile(r"^(Compás\s*\d+\s*(?:a\s*\d+)?|Del\s*tiempo\s*\d+\s*(?:al\s*\d+)?)\s*:\s*", re.IGNORECASE)
+    for obs_line in observaciones:
+        obs_line_stripped = obs_line.strip()
+        measure_info_str, main_content_str = "", obs_line_stripped
+        match = measure_pattern.match(obs_line_stripped)
+        if match:
+            measure_info_str = match.group(1).replace("Del tiempo", "T.").replace("Compás", "C.")
+            main_content_str = measure_pattern.sub("", obs_line_stripped).strip()
+        main_content_str = main_content_str.replace("Violin - ", "").replace("Viola - ", "").replace("Entre voces - ", "")
+        if "Movimiento Melódico del Violin" in obs_line_stripped or "Movimiento Melódico del Contrapunto" in obs_line_stripped : current_section = "violin"; continue
+        elif "Movimiento Melódico del Viola" in obs_line_stripped or "Movimiento Melódico del Cantus Firmus" in obs_line_stripped: current_section = "viola"; continue
+        elif "Movimiento Entre Voces" in obs_line_stripped: current_section = "entre_voces"; continue
+        elif "Patrones Específicos" in obs_line_stripped: current_section = "patrones"; continue
+        if current_section == "violin": mov_melodico_violin_data.append((measure_info_str, main_content_str))
+        elif current_section == "viola": mov_melodico_viola_data.append((measure_info_str, main_content_str))
+        elif current_section == "entre_voces": mov_entre_voces_data.append((measure_info_str, main_content_str))
+        elif current_section == "patrones": patrones_especificos_data.append((measure_info_str, main_content_str))
             
-            if "---" in obs_line: 
-                texto_obs_formateado = f"<b>{obs_line.replace('---', '').strip()}</b>" 
-                # Podrías usar un estilo de heading más pequeño aquí si lo defines
-            elif "Placeholder:" in obs_line or "no disponible" in obs_line or "Error" in obs_line.split(":")[0]:
-                texto_obs_formateado = f"⚠️ {obs_line}"
-                # Podrías usar un estilo específico para advertencias si lo defines
-            else:
-                texto_obs_formateado = f"ℹ️ {obs_line}"
-
-            p_obs = Paragraph(texto_obs_formateado, current_text_style)
-            p_w, p_h = p_obs.wrapOn(c, max_width_content - 0.2*inch, height)
-            if check_new_page(y_position, p_h): 
-                p_temp_title = Paragraph("<u>Análisis Descriptivo (continuación):</u>", style_h2)
-                p_w_t, p_h_t = p_temp_title.wrapOn(c,max_width_content, height)
-                p_temp_title.drawOn(c, margin, y_position - p_h_t); y_position -= (p_h_t + 0.1 * inch)
-            p_obs.drawOn(c, margin + 0.2*inch, y_position - p_h)
-            y_position -= (p_h + 0.05 * inch)
+    story.append(Paragraph("Dinámica entre Voces: Movimiento Armónico/Contrapuntístico", styles['MySectionHeadingEstable']))
+    if mov_entre_voces_data:
+        for measure_info, mov_text_original in mov_entre_voces_data:
+            mov_text_for_comparison = mov_text_original.replace("<b>","").replace("</b>","")
+            style_to_use = styles['OtherMovementStyleEstable']
+            if "Movimiento Contrary" in mov_text_for_comparison: style_to_use = styles['ContraryMovementStyleEstable']
+            elif "Movimiento Parallel" in mov_text_for_comparison: style_to_use = styles['ParallelMovementStyleEstable']
+            story.append(Paragraph(mov_text_original, style_to_use))
+            if measure_info: story.append(Paragraph(measure_info, styles['MeasureInfoSubtleEstable']))
     else:
-        p_no_obs = Paragraph("No hay observaciones analíticas adicionales disponibles.", style_normal)
-        p_w, p_h = p_no_obs.wrapOn(c, max_width_content, height)
-        if check_new_page(y_position, p_h): pass
-        p_no_obs.drawOn(c, margin + 0.2*inch, y_position - p_h)
-        y_position -= (p_h + 0.1 * inch)
+        story.append(Paragraph("No se generó análisis de movimiento entre voces.", styles['MyBodyTextEstable']))
+    story.append(Spacer(1, 0.1*inch))
+    
+    story.append(Paragraph("Perfil de las Voces: Diseño Melódico Individual", styles['MySectionHeadingEstable']))
+    if mov_melodico_violin_data:
+        story.append(Paragraph("Contrapunto (Voz Superior):", styles['MySectionHeading2Estable']))
+        for measure_info, mov_text in mov_melodico_violin_data:
+             story.append(Paragraph(mov_text, styles[base_info_list_style_name])) # Usar el nombre de la variable
+             if measure_info: story.append(Paragraph(measure_info, styles['MeasureInfoSubtleEstable']))
+        story.append(Spacer(1, 0.05*inch))
+    if mov_melodico_viola_data:
+        story.append(Paragraph("Cantus Firmus (Voz Inferior):", styles['MySectionHeading2Estable']))
+        for measure_info, mov_text in mov_melodico_viola_data:
+            story.append(Paragraph(mov_text, styles[base_info_list_style_name])) # Usar el nombre de la variable
+            if measure_info: story.append(Paragraph(measure_info, styles['MeasureInfoSubtleEstable']))
+    if not mov_melodico_violin_data and not mov_melodico_viola_data:
+         story.append(Paragraph("No se generó análisis de movimiento melódico.", styles['MyBodyTextEstable']))
+    story.append(Spacer(1, 0.1*inch))
 
-    # Evaluación General
-    y_position -= 0.2 * inch
-    evaluacion_texto = ejercicio_data.get("evaluacion", "Evaluación no proporcionada.")
-    p_eval = Paragraph(f"<b>Evaluación General:</b> {evaluacion_texto}", style_normal)
-    p_w, p_h = p_eval.wrapOn(c, max_width_content, height)
-    if check_new_page(y_position, p_h): pass
-    p_eval.drawOn(c, margin, y_position - p_h)
-
-    c.save()
+    if patrones_especificos_data:
+        story.append(Paragraph("Observaciones Adicionales y Patrones", styles['MySectionHeadingEstable']))
+        for measure_info, pat_text in patrones_especificos_data:
+            if "No se identificaron patrones especiales" in pat_text:
+                 story.append(Paragraph(pat_text, styles['MyBodyTextEstable']))
+            else:
+                 story.append(Paragraph(pat_text, styles[base_info_list_style_name])) # Usar el nombre de la variable
+            if measure_info: story.append(Paragraph(measure_info, styles['MeasureInfoSubtleEstable']))
+    
+    try:
+        doc.build(story, onFirstPage=_header_footer_with_background, onLaterPages=_header_footer_with_background)
+    except Exception as e_doc_build: 
+        print(f"ERROR CRÍTICO al construir el documento PDF final: {e_doc_build}") 
+        traceback.print_exc() 
+        
     buffer.seek(0)
     return buffer
-
-# Las funciones generar_pdf_partitura y crear_botones_descarga_pdf
-# no son necesarias en este archivo si la generación de PDF de partitura
-# se maneja exclusivamente en verovio_pdf.py.
-# Si las necesitas por alguna otra razón, puedes mantenerlas.

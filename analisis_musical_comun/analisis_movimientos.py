@@ -1,56 +1,64 @@
-# analisis_musical_comun/analisis_movimientos.py
+# analisis_musical_comun/analisis_movimientos.py (Con números de compás)
 from music21 import interval, note as m21note, stream
-import traceback # Para imprimir tracebacks completos en caso de error inesperado
+from music21.voiceLeading import VoiceLeadingQuartet, MotionType 
+import traceback
 
-# --- IMPORTACIÓN DE MotionType ---
-MOTIONTYPE_CLASS = None
-MOTIONTYPE_AVAILABLE = False
-print("DEBUG (analisis_movimiento.py): Intentando importar MotionType...")
+# --- ESTADO DE LAS HERRAMIENTAS DE ANÁLISIS DE MOVIMIENTO ---
+VOICELEADING_QUARTET_CLASS = None
+MOTION_ANALYSIS_AVAILABLE = False 
+
+print("DEBUG (analisis_movimiento.py): Intentando configurar herramientas de análisis de movimiento...")
 
 try:
-    # Intento principal: Asumiendo que MotionType está en el archivo voiceLeading.py
-    from music21.voiceLeading import MotionType
-    MOTIONTYPE_CLASS = MotionType
-    MOTIONTYPE_AVAILABLE = True
-    print("DEBUG (analisis_movimiento.py): ÉXITO importando MotionType desde music21.voiceLeading")
-except ImportError as e1:
-    print(f"DEBUG (analisis_movimiento.py): Falló importación 'from music21.voiceLeading import MotionType': {e1}.")
-    print("                       Esto es esperado si 'voiceLeading' es un archivo y MotionType no está directamente en su __init__ o no es un módulo.")
-    print("                       Intentando importar el módulo voiceLeading y acceder a MotionType como atributo...")
-    try:
-        from music21 import voiceLeading as voiceLeading_module
-        if hasattr(voiceLeading_module, 'MotionType'):
-            MOTIONTYPE_CLASS = voiceLeading_module.MotionType
-            MOTIONTYPE_AVAILABLE = True
-            print("DEBUG (analisis_movimiento.py): ÉXITO obteniendo MotionType como atributo de music21.voiceLeading")
-        else:
-            print(f"ADVERTENCIA (analisis_movimiento.py): Módulo 'music21.voiceLeading' importado, pero NO tiene atributo 'MotionType'. Contenido: {dir(voiceLeading_module)}")
-    except ImportError as e2:
-        print(f"ADVERTENCIA CRÍTICA (analisis_movimiento.py): No se pudo importar ni 'MotionType' desde 'music21.voiceLeading' ni el módulo 'music21.voiceLeading' en sí: {e2}")
-    except Exception as e_attr:
-        print(f"ERROR (analisis_movimiento.py): Buscando MotionType como atributo de voiceLeading: {e_attr}")
-        
-except Exception as e_general_imp:
-    print(f"ERROR INESPERADO (analisis_movimiento.py) durante los intentos de importación de MotionType: {e_general_imp}")
+    VOICELEADING_QUARTET_CLASS = VoiceLeadingQuartet 
+    MOTION_ANALYSIS_AVAILABLE = True
+    print("DEBUG (analisis_movimiento.py): ÉXITO, VoiceLeadingQuartet está disponible.")
+except NameError: 
+    print("ADVERTENCIA CRÍTICA (analisis_movimiento.py): VoiceLeadingQuartet no se pudo encontrar. El análisis de movimiento entre voces no funcionará.")
+except Exception as e_init_vl_tools:
+    print(f"ERROR INESPERADO (analisis_movimiento.py) configurando herramientas de VoiceLeading: {e_init_vl_tools}")
     traceback.print_exc()
 
-if not MOTIONTYPE_AVAILABLE:
-    print("ADVERTENCIA CRÍTICA (analisis_movimiento.py): Todos los intentos de importar MotionType fallaron.")
+def get_measure_info_str(nota_anterior, nota_actual):
+    """
+    Genera una cadena con la información del compás para dos notas.
+    Ej: "Compás X a Y:", "Compás X:", o "" si no se puede determinar.
+    """
+    try:
+        m_ant = nota_anterior.measureNumber
+        m_curr = nota_actual.measureNumber
+        if m_ant is not None and m_curr is not None:
+            if m_ant == m_curr:
+                return f"Compás {m_ant}:"
+            else:
+                return f"Compás {m_ant} a {m_curr}:"
+        elif m_ant is not None: # Si solo la primera nota tiene info de compás
+             return f"Desde Compás {m_ant}:"
+        elif m_curr is not None: # Si solo la segunda nota tiene info de compás
+             return f"Hacia Compás {m_curr}:"
 
+    except AttributeError: # Si las notas no tienen .measureNumber o algo falla
+        pass # Simplemente no se añade info de compás
+    return "" # Devuelve cadena vacía si no se pudo determinar
 
 def describir_movimiento_melodico_voz(lista_notas_voz, nombre_voz_para_mensaje="Voz"):
-    # ... (esta función no cambia) ...
     descripciones = []
     if len(lista_notas_voz) < 2:
         return descripciones
+        
     for i in range(len(lista_notas_voz) - 1):
         nota_anterior = lista_notas_voz[i]
         nota_actual = lista_notas_voz[i+1]
-        if not (hasattr(nota_anterior, 'pitch') and hasattr(nota_actual, 'pitch')):
+
+        # Asegurarse de que sean objetos Note con pitch
+        if not all(isinstance(n, m21note.Note) and hasattr(n, 'pitch') for n in [nota_anterior, nota_actual]):
+            # Podríamos añadir un mensaje de error o simplemente saltar este par
+            # descripciones.append(f"   {nombre_voz_para_mensaje} - Evento {i+1} a {i+2}: Elementos no son notas válidas para análisis melódico.")
             continue
-        mov_desc = ""
+
+        mov_desc_text = ""
         if nota_anterior.pitch == nota_actual.pitch:
-            mov_desc = f"Repetición de {nota_actual.nameWithOctave}"
+            mov_desc_text = f"Repetición de {nota_actual.nameWithOctave}"
         else:
             try:
                 inter_melodico = interval.Interval(noteStart=nota_anterior, noteEnd=nota_actual)
@@ -60,10 +68,13 @@ def describir_movimiento_melodico_voz(lista_notas_voz, nombre_voz_para_mensaje="
                     direccion_str = "Ascendente"
                 elif inter_melodico.direction == interval.Direction.DESCENDING:
                     direccion_str = "Descendente"
-                mov_desc = f"{tipo_salto} de {inter_melodico.niceName} {direccion_str} (de {nota_anterior.nameWithOctave} a {nota_actual.nameWithOctave})"
+                mov_desc_text = f"{tipo_salto} de {inter_melodico.niceName} {direccion_str} (de {nota_anterior.nameWithOctave} a {nota_actual.nameWithOctave})"
             except Exception as e_mel:
-                mov_desc = f"No se pudo calcular movimiento melódico ({e_mel})"
-        descripciones.append(f"  {nombre_voz_para_mensaje} - Del evento {i+1} al {i+2}: {mov_desc}")
+                mov_desc_text = f"No se pudo calcular movimiento melódico ({e_mel})"
+        
+        measure_info = get_measure_info_str(nota_anterior, nota_actual)
+        descripciones.append(f"{measure_info} {nombre_voz_para_mensaje} - {mov_desc_text}") # Quitamos "Del evento..."
+        
     return descripciones
 
 def identificar_movimiento_entre_voces(cp_notes_list, cf_notes_list):
@@ -73,8 +84,8 @@ def identificar_movimiento_entre_voces(cp_notes_list, cf_notes_list):
     if num_eventos_comunes < 2:
         return movimientos
     
-    if not MOTIONTYPE_AVAILABLE or MOTIONTYPE_CLASS is None:
-        movimientos.append("  Entre voces: Herramienta MotionType no disponible para análisis (fallo en importación).")
+    if not MOTION_ANALYSIS_AVAILABLE or VOICELEADING_QUARTET_CLASS is None:
+        movimientos.append("   Entre voces: Herramienta de análisis de movimiento no disponible.") # Mantener un prefijo general
         return movimientos
 
     for i in range(num_eventos_comunes - 1):
@@ -83,27 +94,36 @@ def identificar_movimiento_entre_voces(cp_notes_list, cf_notes_list):
         cf_ant = cf_notes_list[i]
         cf_curr = cf_notes_list[i+1]
 
-        if not all(hasattr(n, 'pitch') for n in [cp_ant, cp_curr, cf_ant, cf_curr]):
-            movimientos.append(f"  Entre voces - Del tiempo {i+1} al {i+2}: No se pudo determinar (elemento no es nota).")
+        if not all(isinstance(n, m21note.Note) and hasattr(n, 'pitch') for n in [cp_ant, cp_curr, cf_ant, cf_curr]):
+            measure_info = get_measure_info_str(cf_ant, cf_curr) # Usar CF para la referencia de compás aquí, o CP.
+            movimientos.append(f"{measure_info} Entre voces: No se pudo determinar (elemento no es una nota válida con pitch).")
             continue
             
         try:
-            motion_obj = MOTIONTYPE_CLASS(cp_ant, cp_curr, cf_ant, cf_curr)
-            tipo_mov_str = motion_obj.type.capitalize() 
+            vlq = VOICELEADING_QUARTET_CLASS(cf_ant, cf_curr, cp_ant, cp_curr)
+            motion_type_enum_member = vlq.motionType()
             
+            if motion_type_enum_member is not None:
+                tipo_mov_str = motion_type_enum_member.name.capitalize()
+            else:
+                tipo_mov_str = "Indeterminado"
+
             detalle_paralelo = ""
             if tipo_mov_str == 'Parallel':
                 if hasattr(cf_curr, 'pitch') and hasattr(cp_curr, 'pitch'):
                     try:
                         intervalo_par = interval.Interval(noteStart=cf_curr, noteEnd=cp_curr)
                         detalle_paralelo = f" (formando {intervalo_par.simpleName}s)"
-                    except Exception as e_int_par:
-                        detalle_paralelo = f" (error al calcular intervalo paralelo: {e_int_par})"
+                    except Exception: # No hacer nada si falla el cálculo del intervalo paralelo
+                        pass
+            
+            measure_info = get_measure_info_str(cf_ant, cf_curr) # Usar el par de notas del CF (o CP) para la referencia de compás
             movimientos.append(
-                f"  Entre voces - Del tiempo {i+1} al {i+2}: Movimiento {tipo_mov_str}{detalle_paralelo}"
+                f"{measure_info} Entre voces: Movimiento {tipo_mov_str}{detalle_paralelo}"
             )
         except Exception as e:
+            measure_info = get_measure_info_str(cf_ant, cf_curr)
             movimientos.append(
-                f"  Entre voces - Del tiempo {i+1} al {i+2}: No se pudo determinar el movimiento (error interno con MotionType: {e})."
+                f"{measure_info} Entre voces: No se pudo determinar el movimiento (error interno: {e})."
             )
     return movimientos

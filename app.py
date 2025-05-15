@@ -1,4 +1,4 @@
-# app.py (Estructura Completa con UI Refactorizada y Datos para PDF Completo)
+# app.py (Modificado para generar SVG temporal y pasarlo a exportar_pdf)
 
 import streamlit as st
 import datetime
@@ -10,7 +10,7 @@ except ImportError:
     credentials = None 
     print("ADVERTENCIA: firebase_admin.credentials no se pudo importar.")
 
-import os
+import os # Asegúrate que os está importado
 import re
 import traceback
 
@@ -22,8 +22,8 @@ try:
     from material_didactico import material_didactico as md
     from primera_especie.analisis import seccion_analizar_ejercicio, ResultadoAnalisis
     from segunda_especie.analisis import analizar_segunda_especie # Asume que existe
-    import verovio_pdf
-    import exportar_pdf
+    import verovio_pdf # Ya lo tienes
+    import exportar_pdf # Ya lo tienes
 except ImportError as ie:
     st.error(f"Error CRÍTICO importando módulos base: {ie}. La aplicación no puede continuar.")
     st.stop()
@@ -38,6 +38,7 @@ st.set_page_config(page_title="Analizador de Contrapunto", layout="wide")
 # ===============================================
 # CONFIGURACIÓN FIREBASE
 # ===============================================
+# ... (Tu código de inicialización de Firebase - sin cambios) ...
 FIREBASE_INITIALIZED = False
 if credentials: 
     try:
@@ -66,6 +67,7 @@ if credentials:
 # ===============================================
 # DISEÑO PERSONALIZADO (CSS)
 # ===============================================
+# ... (Tu función cargar_estilos() - sin cambios) ...
 def cargar_estilos():
     st.markdown("""
     <style>
@@ -84,6 +86,7 @@ def cargar_estilos():
 # ===============================================
 # FUNCIÓN PARA SANITIZAR NOMBRES DE ARCHIVO
 # ===============================================
+# ... (Tu función sanitizar_nombre_archivo() - sin cambios) ...
 def sanitizar_nombre_archivo(nombre_original):
     nombre = str(nombre_original)
     nombre_sin_ext, _ = os.path.splitext(nombre)
@@ -102,6 +105,7 @@ ANALISIS_SEGUNDA_ESPECIE_SUBTITULO = "Análisis de Contrapunto de Segunda Especi
 # ===============================================
 def cargar_archivo_primera_especie():
     st.markdown("<h2 class='upload-header'>Sube tu Archivo MusicXML para el Análisis (Primera Especie)</h2>", unsafe_allow_html=True)
+    # ... (Tus expanders de reglas e info - sin cambios) ...
     with st.expander("📜 Recordatorio de las Reglas de la Primera Especie", expanded=False):
         st.markdown("""
             - Una nota contra una nota.
@@ -139,7 +143,8 @@ def cargar_archivo_primera_especie():
     cf_part_m21_para_anotacion = None
     cp_part_m21_para_anotacion = None
     score_m21_obj = None 
-    
+    ruta_svg_temporal_para_informe = None # NUEVO: Para la ruta del SVG temporal
+
     errores_lista = []
     evaluacion_str = "Evaluación no disponible."
     observaciones_lista = []
@@ -152,6 +157,7 @@ def cargar_archivo_primera_especie():
         with st.spinner("Procesando archivo MusicXML..."):
             score_m21_obj = converter.parse(original_musicxml_path)
 
+        # ... (Tu lógica para validar 2 voces y seleccionar CF/CP - sin cambios) ...
         if len(score_m21_obj.parts) != 2:
             st.error("❌ La partitura debe contener exactamente dos voces.")
             if original_musicxml_path and os.path.exists(original_musicxml_path): 
@@ -198,15 +204,17 @@ def cargar_archivo_primera_especie():
                 if element.isNote: 
                     element.id = f"{part_prefix}_n{current_note_index_in_part}"
                     current_note_index_in_part += 1
-        
-        musicxml_to_verovio_path = original_musicxml_path 
+            
+        musicxml_to_verovio_path = original_musicxml_path # Por defecto, si no se reescribe con IDs
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".musicxml", prefix="m21_with_ids_") as tmp_m21_out:
                 score_m21_obj.write('musicxml', fp=tmp_m21_out.name)
-                musicxml_to_verovio_path = tmp_m21_out.name
+                musicxml_to_verovio_path = tmp_m21_out.name # Actualizar a la ruta con IDs
         except Exception as e_write_m21: st.error(f"Error al re-escribir MusicXML con IDs: {e_write_m21}")
 
+
         with st.spinner("Realizando análisis de reglas y generando PDFs..."):
+            # ... (tu código para resultados_obj, errores_lista, etc. - sin cambios) ...
             resultados_obj = seccion_analizar_ejercicio(score_m21_obj, cf_part_m21_para_anotacion, cp_part_m21_para_anotacion) 
             
             if resultados_obj:
@@ -215,85 +223,145 @@ def cargar_archivo_primera_especie():
                 observaciones_lista = getattr(resultados_obj, 'observaciones', []) 
             else: 
                 st.error("El análisis no devolvió resultados válidos.")
-                # Las variables errores_lista, evaluacion_str, observaciones_lista mantendrán sus valores iniciales
 
+            # ... (Tu UI para mostrar errores y análisis descriptivo - sin cambios) ...
             st.subheader("Resultados del Análisis de Reglas de Contrapunto")
             if errores_lista:
                 st.error(f"### ⚠️ Se encontraron {len(errores_lista)} errores en las reglas:")
-                for e in errores_lista: 
-                    st.markdown(f"❌ {e}") 
+                for e_msg in errores_lista: 
+                    st.markdown(f"❌ {e_msg}") 
             else:
                 st.success("🎉 ¡Ejercicio correcto según las reglas de contrapunto!")
             
-            # --- MODIFICACIÓN: Mostrar un mensaje más conciso en la UI ---
             st.subheader("Análisis Descriptivo Adicional")
             if observaciones_lista:
-                # Comprobar si hay advertencias específicas sobre herramientas no disponibles
-                motion_type_warning_present = any("MotionType no disponible" in obs for obs in observaciones_lista)
+                motion_type_warning_present = any("no disponible" in obs for obs in observaciones_lista if "MotionType" in obs or "movimiento entre voces" in obs) # Ajustado para ser más general
                 if motion_type_warning_present:
-                    st.warning("⚠️ El análisis de movimiento entre voces no está completamente disponible (MotionType). Detalles en PDF.")
-                
+                    st.warning("⚠️ El análisis de movimiento entre voces podría no estar completamente disponible. Detalles en PDF.")
                 st.info("El análisis descriptivo detallado (movimientos melódicos, etc.) está disponible en el PDF de 'Análisis Completo del Ejercicio'.")
             else:
                 st.info("No hay observaciones analíticas adicionales disponibles o el análisis descriptivo falló.")
-            # --- FIN MODIFICACIÓN ---
             
             st.divider(); st.subheader("Descargas")
             col_descarga_partitura, col_descarga_analisis = st.columns(2)
             nombre_base_saneado = sanitizar_nombre_archivo(archivo.name)
             
+            verovio_opts = { # Definir verovio_opts aquí, ya que se usa en ambas generaciones de PDF/SVG
+                "pageHeight": 600, "adjustPageHeight": True, "scale": 60,
+                "pageMarginTop": 40, "pageMarginBottom": 40, "pageMarginLeft": 40, "pageMarginRight": 40,
+                "breaks": "none", "landscape": 0, "svgHtml5": True 
+            }
+
             with col_descarga_partitura:
-                st.subheader("Partitura con Intervalos")
+                st.subheader("Partitura con Intervalos (PDF separado)") # Aclaramos que es separado
                 pdf_nombre_partitura = f"Partitura_1raEsp_{nombre_base_saneado}_Intervalos_Horizontal.pdf"
-                verovio_opts = {
-                    "pageHeight": 600, "adjustPageHeight": True, "scale": 60,
-                    "pageMarginTop": 40, "pageMarginBottom": 40, "pageMarginLeft": 40, "pageMarginRight": 40,
-                    "breaks": "none", "landscape": 0, "svgHtml5": True 
-                }
-                ruta_pdf_partitura = None
+                ruta_pdf_partitura_separada = None # Renombrado para claridad
                 try:
                     if os.path.exists(musicxml_to_verovio_path): 
-                        ruta_pdf_partitura = verovio_pdf.generar_pdf_partitura(
+                        ruta_pdf_partitura_separada = verovio_pdf.generar_pdf_partitura( # Esta es tu función original
                             musicxml_to_verovio_path, output_pdf=pdf_nombre_partitura, 
                             verovio_options=verovio_opts, score_m21_obj=score_m21_obj, 
                             cf_part_m21_obj=cf_part_m21_para_anotacion, cp_part_m21_obj=cp_part_m21_para_anotacion,
                             species_str="primera", anotar_intervalos=True 
                         )
                 except Exception as e_pdf_gen: 
-                    st.warning(f"⚠️ No se pudo generar PDF de partitura: {e_pdf_gen}")
-                    traceback.print_exc() # Mostrar traceback en consola para depuración
-                if ruta_pdf_partitura and os.path.exists(ruta_pdf_partitura):
-                    with open(ruta_pdf_partitura, "rb") as f:
-                        st.download_button(label="⬇️ Descargar Partitura con Intervalos (PDF)", data=f,
-                                           file_name=os.path.basename(ruta_pdf_partitura), mime="application/pdf",
-                                           key=f"dl_part_int_1ra_final_{archivo.name}_{archivo.size}")
+                    st.warning(f"⚠️ No se pudo generar PDF de partitura separada: {e_pdf_gen}")
+                    traceback.print_exc()
+                if ruta_pdf_partitura_separada and os.path.exists(ruta_pdf_partitura_separada):
+                    with open(ruta_pdf_partitura_separada, "rb") as f_partitura: # Renombrado f
+                        st.download_button(label="⬇️ Descargar Partitura con Intervalos (PDF)", data=f_partitura,
+                                          file_name=os.path.basename(ruta_pdf_partitura_separada), mime="application/pdf",
+                                          key=f"dl_part_int_1ra_final_{archivo.name}_{archivo.size}")
                 else: 
-                    st.warning("⚠️ El PDF de la partitura con intervalos no pudo ser generado o no se encontró.")
+                    st.warning("⚠️ El PDF de la partitura con intervalos (separado) no pudo ser generado.")
             
             with col_descarga_analisis:
-                st.subheader("Análisis Completo del Ejercicio") # Nombre actualizado
-                pdf_nombre_analisis_completo = f"Analisis_Completo_1raEsp_{nombre_base_saneado}.pdf"
+                st.subheader("Análisis Completo del Ejercicio (con Partitura)") # Nombre actualizado
+                pdf_nombre_analisis_completo = f"Analisis_Completo_Con_Partitura_1raEsp_{nombre_base_saneado}.pdf"
                 
+                # --- NUEVO: Generar el SVG anotado para incrustarlo ---
+                if os.path.exists(musicxml_to_verovio_path):
+                    try:
+                        # Usar las mismas verovio_opts, pero podrías ajustarlas si el SVG para incrustar necesita ser diferente
+                        # Por ejemplo, podrías querer un 'scale' diferente o no 'adjustPageHeight' para el SVG que va DENTRO del PDF de análisis.
+                        # Por ahora, reusamos las mismas opciones.
+                        opciones_svg_para_informe = verovio_opts.copy() 
+                        # Quizás ajustar landscape aquí si el PDF de análisis es landscape
+                        # opciones_svg_para_informe["landscape"] = 1 # Si el PDF de análisis es horizontal
+
+                        ruta_svg_temporal_para_informe = verovio_pdf.generar_y_guardar_svg_anotado_temporal(
+                            musicxml_path=musicxml_to_verovio_path,
+                            verovio_options=opciones_svg_para_informe, 
+                            score_m21_obj=score_m21_obj,
+                            cf_part_m21_obj=cf_part_m21_para_anotacion,
+                            cp_part_m21_obj=cp_part_m21_para_anotacion,
+                            species_str="primera",
+                            anotar_intervalos=True
+                        )
+                    except Exception as e_svg_gen_app:
+                        st.warning(f"⚠️ No se pudo generar el SVG de la partitura para el informe de análisis: {e_svg_gen_app}")
+                        ruta_svg_temporal_para_informe = None # Asegurar que es None si falla
+                else:
+                    st.warning("⚠️ No se encontró el archivo MusicXML con IDs para generar el SVG de la partitura.")
+                    ruta_svg_temporal_para_informe = None
+
                 datos_para_pdf_analisis = {
                     "especie": "Primera", "errores": errores_lista, 
                     "evaluacion": evaluacion_str, "fecha": datetime.date.today().strftime("%Y-%m-%d"),
-                    "observaciones": observaciones_lista # Pasar la lista completa
+                    "observaciones": observaciones_lista
                 }
-                buffer_analisis = exportar_pdf.generar_pdf_analisis(datos_para_pdf_analisis, imagen_partitura_png=None)
-                st.download_button(label="⬇️ Descargar Análisis Completo (PDF)", data=buffer_analisis,
-                                   file_name=pdf_nombre_analisis_completo, mime="application/pdf",
-                                   key=f"dl_analisis_completo_1ra_{archivo.name}_{archivo.size}")
+                
+                buffer_analisis = None # Inicializar buffer
+                try:
+                    # MODIFICADO: Llamar a la función que acepta la ruta del SVG
+                    # Asumimos que la función en exportar_pdf.py se llamará generar_pdf_analisis_v6
+                    # y que la hemos definido para aceptar 'ruta_svg_partitura'
+                    buffer_analisis = exportar_pdf.generar_pdf_analisis_estable( 
+                        datos_para_pdf_analisis,)
+                        
+                    
+                except Exception as e_pdf_analisis_completo_gen:
+                    st.error(f"Error al generar el PDF de análisis completo: {e_pdf_analisis_completo_gen}")
+                    traceback.print_exc()
+                
+                if buffer_analisis:
+                    st.download_button(label="⬇️ Descargar Análisis Completo con Partitura (PDF)", data=buffer_analisis,
+                                          file_name=pdf_nombre_analisis_completo, mime="application/pdf",
+                                          key=f"dl_analisis_completo_con_partitura_1ra_{archivo.name}_{archivo.size}")
+                else:
+                    st.warning("⚠️ El PDF de análisis completo no pudo ser generado.")
+
+                # --- NUEVO: Limpiar el archivo SVG temporal después de usarlo ---
+                #if ruta_svg_temporal_para_informe and os.path.exists(ruta_svg_temporal_para_informe):
+                    #try:
+                        #os.remove(ruta_svg_temporal_para_informe)
+                        #print(f"DEBUG (app.py): Archivo SVG temporal {ruta_svg_temporal_para_informe} eliminado.")
+                    #except Exception as e_clean_svg:
+                        #print(f"ADVERTENCIA (app.py): No se pudo eliminar el SVG temporal {ruta_svg_temporal_para_informe}: {e_clean_svg}")
 
     except Exception as e_general:
         st.error(f"Ocurrió un error general procesando el archivo de Primera Especie: {e_general}")
         traceback.print_exc() 
     finally:
+        # Limpieza de archivos MusicXML temporales
         if original_musicxml_path and os.path.exists(original_musicxml_path):
             try: os.remove(original_musicxml_path)
+            except Exception: pass # Silenciar error si el archivo ya fue borrado o no se puede borrar
+        
+        # musicxml_to_verovio_path es el que tiene IDs y se usó para generar el SVG
+        # No lo borramos aquí si ruta_svg_temporal_para_informe dependía de él
+        # y la limpieza del SVG ya se hizo.
+        # Si musicxml_to_verovio_path es diferente de original_musicxml_path y es temporal, considerar su limpieza.
+        # Por ahora, la lógica de limpieza de musicxml_to_verovio_path se maneja si es diferente y temporal.
+        if musicxml_to_verovio_path and \
+           os.path.exists(musicxml_to_verovio_path) and \
+           musicxml_to_verovio_path != original_musicxml_path and \
+           "m21_with_ids_" in os.path.basename(musicxml_to_verovio_path): # Asegurar que es el temporal de music21
+            try: 
+                os.remove(musicxml_to_verovio_path)
+                print(f"DEBUG (app.py): Archivo MusicXML con IDs {musicxml_to_verovio_path} eliminado.")
             except Exception: pass
-        if musicxml_to_verovio_path and os.path.exists(musicxml_to_verovio_path) and musicxml_to_verovio_path != original_musicxml_path:
-            try: os.remove(musicxml_to_verovio_path)
-            except Exception: pass
+
 
 def cargar_archivo_segunda_especie():
     st.warning("La funcionalidad de análisis y anotación de Segunda Especie está en desarrollo.")
@@ -302,9 +370,8 @@ def cargar_archivo_segunda_especie():
 # ===============================================
 # INTERFAZ PRINCIPAL (Definición)
 # ===============================================
+# ... (Tu función interfaz_principal() - sin cambios) ...
 def interfaz_principal():
-    # st.title("🎼 Asistente de Contrapunto") # El título ya está en main()
-    
     opcion_menu = st.sidebar.selectbox(
         "Menú",
         [
@@ -326,6 +393,7 @@ def interfaz_principal():
 # ===============================================
 # FUNCIÓN PRINCIPAL (main)
 # ===============================================
+# ... (Tu función main() - sin cambios) ...
 def main():
     cargar_estilos()
     st.title("🎼 Asistente de Contrapunto") 
@@ -333,9 +401,6 @@ def main():
     if 'autenticado' not in st.session_state: st.session_state['autenticado'] = False
     if 'uploader_primera_key_v9' not in st.session_state: st.session_state.uploader_primera_key_v9 = 0
     
-    # Descomenta para desarrollo local sin Firebase
-    # st.session_state['autenticado'] = True 
-
     if st.session_state['autenticado']:
         interfaz_principal()
         if FIREBASE_INITIALIZED and 'autenticacion' in globals() and hasattr(autenticacion, 'mostrar_login'): 
@@ -348,11 +413,8 @@ def main():
             autenticacion.mostrar_login() 
         else:
             st.sidebar.warning("Firebase no configurado o módulo de autenticación no disponible. Autenticación deshabilitada.")
-            # st.info("La autenticación no está disponible.") # Comentado para reducir ruido si se accede directamente
             if st.sidebar.button("Continuar sin autenticación (Desarrollo)", key="bypass_login_dev_v4"):
-                 st.session_state['autenticado'] = True; st.experimental_rerun()
-            # Si no hay Firebase y no se presiona bypass, la interfaz principal no se llama,
-            # lo que significa que la app se queda esperando en el título.
+                st.session_state['autenticado'] = True; st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
