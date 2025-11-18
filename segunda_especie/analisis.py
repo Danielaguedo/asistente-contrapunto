@@ -1,267 +1,150 @@
+# segunda_especie/analisis.py (v10 - Llamada a analizar_figuras_disonantes)
+
 from music21 import note, chord, stream, interval
 
-# Importación relativa correcta
+# Importación relativa correcta para reglas.py
 from . import reglas
 
-def es_parte_de_redondas(part_stream):
-    """Verifica si una parte consiste principalmente en notas redondas."""
-    part_notes = list(part_stream.flat.notes)
-    if not part_notes:
-        return False
-    
-    num_redondas = 0
-    num_otras_duraciones = 0
+# Importación de funciones de análisis de movimiento
+try:
+    from analisis_musical_comun.analisis_movimientos import describir_movimiento_melodico_voz, identificar_movimiento_entre_voces
+    print("DEBUG (2daEspecie analisis.py): Funciones de analisis_movimientos importadas.")
+except ImportError as e_mov:
+    print(f"ADVERTENCIA (2daEspecie analisis.py): No se pudo importar desde analisis_musical_comun: {e_mov}. Usando placeholders.")
+    def describir_movimiento_melodico_voz(lista_notas, nombre_voz="Voz"): return [f"Placeholder: Análisis melódico para {nombre_voz} no disponible."]
+    def identificar_movimiento_entre_voces(cp_notas, cf_notas): return ["Placeholder: Análisis de movimiento entre voces no disponible."]
 
-    for el in part_stream.flat.notesAndRests:
+# --- Clase de Resultado (ya incluye ids_rojos) ---
+class ResultadoAnalisisSegundaEspecie:
+    def __init__(self, errores, datos_intervalos_svg, observaciones_textuales, evaluacion_general, ids_notas_rojas=None):
+        self.errores = errores if errores is not None else []
+        self.datos_intervalos_svg = datos_intervalos_svg if datos_intervalos_svg is not None else []
+        self.observaciones = observaciones_textuales if observaciones_textuales is not None else [] 
+        self.evaluacion = evaluacion_general if evaluacion_general is not None else "Evaluación no generada."
+        self.ids_notas_rojas = ids_notas_rojas if ids_notas_rojas is not None else []
+
+# --- Funciones de identificación de partes (sin cambios) ---
+def es_parte_de_redondas(part_stream):
+    part_notes = list(part_stream.flatten().notes);
+    if not part_notes: return False
+    num_redondas = 0; num_otras_duraciones = 0
+    for el in part_stream.flatten().notesAndRests:
         if isinstance(el, note.Note):
-            if el.duration.quarterLength == 4.0:
-                num_redondas += 1
-            else:
-                num_otras_duraciones +=1
-        elif isinstance(el, chord.Chord):
-            return False # CF no debería tener acordes
-    
-    # Para ser considerado CF, debe tener redondas y muy pocas o ninguna otra duración.
-    if num_redondas > 0 and num_otras_duraciones <= 1: # Permite una posible nota final diferente en algunos estilos de CF
-        return True
+            if el.duration.quarterLength == 4.0: num_redondas += 1
+            else: num_otras_duraciones +=1
+        elif isinstance(el, chord.Chord): return False
+    if num_redondas > 0 and num_otras_duraciones <= 1: return True
     return False
 
 def es_ritmo_segunda_especie_flexible(part_stream):
-    """
-    Verifica de forma más flexible si una parte tiene características generales
-    de un contrapunto de segunda especie (no es CF de redondas, tiene blancas).
-    Útil para una identificación inicial.
-    """
-    if es_parte_de_redondas(part_stream): # Si es de redondas, no es CP de 2da
-        return False
-
-    part_notes_and_rests = list(part_stream.flat.notesAndRests)
-    if not part_notes_and_rests:
-        return False
-
-    num_blancas = 0
-    num_silencios_blanca = 0
-    num_redondas = 0 # CP de 2da puede tener redondas al final
-
+    if es_parte_de_redondas(part_stream): return False
+    part_notes_and_rests = list(part_stream.flatten().notesAndRests);
+    if not part_notes_and_rests: return False
+    num_blancas = 0; num_silencios_blanca = 0; num_redondas = 0
     for el in part_notes_and_rests:
         if isinstance(el, note.Note):
-            if el.duration.quarterLength == 2.0:
-                num_blancas += 1
-            elif el.duration.quarterLength == 4.0:
-                num_redondas +=1
+            if el.duration.quarterLength == 2.0: num_blancas += 1
+            elif el.duration.quarterLength == 4.0: num_redondas +=1
         elif isinstance(el, note.Rest):
-            if el.duration.quarterLength == 2.0: # Silencio de blanca inicial
-                num_silencios_blanca +=1
-            elif el.duration.quarterLength == 4.0 and len(part_notes_and_rests) == 1 : # Silencio de redonda inicial
-                return True 
-
-    # Si hay al menos una blanca o un silencio de blanca (y no es CF)
+            if el.duration.quarterLength == 2.0: num_silencios_blanca +=1
+            elif el.duration.quarterLength == 4.0 and len(part_notes_and_rests) == 1 : return True 
     return (num_blancas > 0 or num_silencios_blanca > 0)
 
-
 def identificar_cantus_firmus_y_contrapunto(score):
-    """Identifica CF y CP para segunda especie."""
-    if len(score.parts) != 2:
-        return None, None, "La partitura debe contener exactamente dos partes."
-
-    part0, part1 = score.parts[0], score.parts[1]
-    cf_part, cp_part = None, None
-    
-    p0_es_cf = es_parte_de_redondas(part0)
-    p1_es_cf = es_parte_de_redondas(part1)
-    p0_es_cp_flex = es_ritmo_segunda_especie_flexible(part0)
-    p1_es_cp_flex = es_ritmo_segunda_especie_flexible(part1)
-
+    if len(score.parts) != 2: return None, None, "La partitura debe contener exactamente dos partes."
+    part0, part1 = score.parts[0], score.parts[1]; cf_part, cp_part = None, None
+    p0_es_cf = es_parte_de_redondas(part0); p1_es_cf = es_parte_de_redondas(part1)
+    p0_es_cp_flex = es_ritmo_segunda_especie_flexible(part0); p1_es_cp_flex = es_ritmo_segunda_especie_flexible(part1)
     mensaje = ""
-
-    if p0_es_cf and p1_es_cp_flex: # P0 es CF, P1 parece CP
-        cf_part, cp_part = part0, part1
-        mensaje = "Identificado: Parte 1 como Cantus Firmus (redondas), Parte 2 como Contrapunto (patrón 2da especie)."
-    elif p1_es_cf and p0_es_cp_flex: # P1 es CF, P0 parece CP
+    if p0_es_cf and p1_es_cp_flex: cf_part, cp_part = part0, part1; mensaje = "Identificado: Parte 1->CF, Parte 2->CP."
+    elif p1_es_cf and p0_es_cp_flex: cf_part, cp_part = part1, part0; mensaje = "Identificado: Parte 2->CF, Parte 1->CP."
+    elif p0_es_cf and not p1_es_cf: cf_part, cp_part = part0, part1; mensaje = "Identificado: Parte 1->CF. Parte 2 asume CP."
+    elif p1_es_cf and not p0_es_cf: cf_part, cp_part = part1, part0; mensaje = "Identificado: Parte 2->CF. Parte 1 asume CP."
+    elif p0_es_cp_flex and not p1_es_cp_flex and not p1_es_cf : cp_part, cf_part = part0, part1; mensaje = "Identificado: Parte 1->CP. Parte 2 asume CF."
+    elif p1_es_cp_flex and not p0_es_cp_flex and not p0_es_cf: cp_part, cf_part = part1, part0; mensaje = "Identificado: Parte 2->CP. Parte 1 asume CF."
+    else: 
+        if p0_es_cf and p1_es_cf: mensaje = "Ambigüedad: Ambas partes parecen CF."
+        elif p0_es_cp_flex and p1_es_cp_flex: mensaje = "Ambigüedad: Ambas partes parecen CP 2da esp."
+        else: mensaje = "No se pudo identificar CF/CP. Asignando P2->CF, P1->CP por defecto."
         cf_part, cp_part = part1, part0
-        mensaje = "Identificado: Parte 2 como Cantus Firmus (redondas), Parte 1 como Contrapunto (patrón 2da especie)."
-    elif p0_es_cf and not p1_es_cf: # P0 es CF, P1 no es CF (se asume CP)
-        cf_part, cp_part = part0, part1
-        mensaje = "Identificado: Parte 1 como Cantus Firmus (redondas). Parte 2 se asume Contrapunto."
-    elif p1_es_cf and not p0_es_cf: # P1 es CF, P0 no es CF (se asume CP)
-        cf_part, cp_part = part1, part0
-        mensaje = "Identificado: Parte 2 como Cantus Firmus (redondas). Parte 1 se asume Contrapunto."
-    elif p0_es_cp_flex and not p1_es_cp_flex and not p1_es_cf : # P0 parece CP, P1 no parece ni CP ni CF claro
-        cp_part, cf_part = part0, part1 # Orden invertido aquí, cf_part es el segundo
-        mensaje = "Identificado: Parte 1 como Contrapunto (patrón 2da especie). Parte 2 se asume Cantus Firmus."
-    elif p1_es_cp_flex and not p0_es_cp_flex and not p0_es_cf: # P1 parece CP, P0 no parece ni CP ni CF claro
-        cp_part, cf_part = part1, part0 # Orden invertido
-        mensaje = "Identificado: Parte 2 como Contrapunto (patrón 2da especie). Parte 1 se asume Cantus Firmus."
-    else: # Casos ambiguos
-        if p0_es_cf and p1_es_cf:
-            mensaje = "Ambigüedad: Ambas partes parecen ser Cantus Firmus (redondas)."
-        elif p0_es_cp_flex and p1_es_cp_flex:
-            mensaje = "Ambigüedad: Ambas partes tienen características de Contrapunto de 2da especie."
-        else:
-            mensaje = "No se pudo identificar claramente el CF y CP. Asignando Parte 1 como CP y Parte 2 como CF por defecto. El análisis puede ser impreciso."
-            # Fallback: Asignar P2 como CF (típicamente inferior o voz más lenta) y P1 como CP
-            cf_part, cp_part = part1, part0 # part1 es P2 del XML
-            
     if cf_part and cp_part:
-        cf_part.id = 'CantusFirmus_id' # Evitar conflicto con el nombre de la variable
-        cp_part.id = 'Contrapunto_id'
-        # print(f"Debug ID: {mensaje}, CF: {cf_part.id}, CP: {cp_part.id}")
+        cf_part.id = cf_part.id if cf_part.id else 'CantusFirmus_auto_id' 
+        cp_part.id = cp_part.id if cp_part.id else 'Contrapunto_auto_id'
         return cf_part, cp_part, mensaje
-    
     return None, None, mensaje
 
 
-def analizar_segunda_especie(score_original):
+def analizar_segunda_especie(score_con_ids_en_notas, cf_part_seleccionada, cp_part_seleccionada):
+    """
+    Analiza un ejercicio de segunda especie.
+    Devuelve un objeto ResultadoAnalisisSegundaEspecie.
+    """
     errores = []
-    cf_part_obj, cp_part_obj, mensaje_id = identificar_cantus_firmus_y_contrapunto(score_original)
-
-    if mensaje_id and (not cf_part_obj or not cp_part_obj):
-        errores.append(f"Error de Identificación de Partes: {mensaje_id}")
-        return errores
-    elif mensaje_id:
-         # Podrías añadir mensajes informativos a una lista separada si lo deseas
-         # print(f"Nota de identificación: {mensaje_id}")
-         pass
-
-    if not cf_part_obj or not cp_part_obj: # Fallback si la identificación falló completamente
-        errores.append("Error Crítico: No se pudieron asignar las partes de Cantus Firmus y Contrapunto.")
-        return errores
-
-    cf_measures_list = list(cf_part_obj.getElementsByClass(stream.Measure))
-    cp_measures_list = list(cp_part_obj.getElementsByClass(stream.Measure))
-
-    num_cf_measures = len(cf_measures_list)
-    num_cp_measures = len(cp_measures_list)
-
-    if num_cf_measures == 0:
-        errores.append("Error Crítico: El Cantus Firmus identificado no contiene compases.")
-        return errores
-    if num_cp_measures == 0:
-        errores.append("Error Crítico: El Contrapunto identificado no contiene compases.")
-        return errores
-
-    min_compases_analizables = min(num_cf_measures, num_cp_measures)
-    if num_cf_measures != num_cp_measures:
-        errores.append(f"ADVERTENCIA de Longitud: CF tiene {num_cf_measures} compases, CP tiene {num_cp_measures}. Se analizarán los primeros {min_compases_analizables} compases.")
-
-    cf_nota_anterior_tf = None
-    cp_nota_anterior_tf = None
-
-    for i in range(min_compases_analizables):
-        cf_compas_actual = cf_measures_list[i]
-        cp_compas_actual = cp_measures_list[i]
-
-        cf_notas_en_compas = list(cf_compas_actual.flat.notes)
-        if not cf_notas_en_compas:
-            errores.append(f"Compás {i+1} (CF): No contiene notas.")
-            cf_nota_anterior_tf = None 
-            cp_nota_anterior_tf = None
-            continue
-        cf_nota_actual_tf = cf_notas_en_compas[0] 
-
-        cp_elementos_en_compas = [el for el in cp_compas_actual.flat.notesAndRests if not isinstance(el, chord.Chord)]
-        
-        nota_cp_tf_actual = None 
-        nota_cp_td_actual = None 
-
-        # --- Validación Rítmica del CP para el compás actual ---
-        num_elements_cp = len(cp_elementos_en_compas)
-        is_first_measure_cp = (i == 0)
-        is_last_measure_cp = (i == num_cp_measures - 1)
-        is_penultimate_measure_cp = (i == num_cp_measures - 2)
-
-        if is_first_measure_cp:
-            if num_elements_cp == 1 and cp_elementos_en_compas[0].isRest and cp_elementos_en_compas[0].duration.quarterLength == 4.0:
-                # Silencio de redonda inicial
-                pass
-            elif num_elements_cp == 2:
-                el1, el2 = cp_elementos_en_compas[0], cp_elementos_en_compas[1]
-                if el1.isRest and el1.duration.quarterLength == 2.0 and isinstance(el2, note.Note) and el2.duration.quarterLength == 2.0:
-                    nota_cp_tf_actual = el2
-                elif isinstance(el1, note.Note) and el1.duration.quarterLength == 2.0 and isinstance(el2, note.Note) and el2.duration.quarterLength == 2.0:
-                    nota_cp_tf_actual = el1
-                    nota_cp_td_actual = el2
-                else:
-                    errores.append(f"Compás {i+1} (CP): Ritmo inicial no esperado. Debe ser silencio de redonda, silencio de blanca + blanca, o blanca + blanca.")
-            else:
-                errores.append(f"Compás {i+1} (CP): Ritmo inicial no esperado (número incorrecto de elementos).")
-        elif is_last_measure_cp:
-            if num_elements_cp == 1 and isinstance(cp_elementos_en_compas[0], note.Note) and cp_elementos_en_compas[0].duration.quarterLength == 4.0:
-                nota_cp_tf_actual = cp_elementos_en_compas[0] # La redonda final es el "tiempo fuerte" armónico
-            else:
-                errores.append(f"Compás {i+1} (CP): Ritmo final no esperado. El último compás del CP debe ser una redonda.")
-        elif is_penultimate_measure_cp:
-            if num_elements_cp == 1 and isinstance(cp_elementos_en_compas[0], note.Note) and cp_elementos_en_compas[0].duration.quarterLength == 4.0:
-                nota_cp_tf_actual = cp_elementos_en_compas[0] # Redonda en penúltimo compás
-            elif num_elements_cp == 2 and \
-                 isinstance(cp_elementos_en_compas[0], note.Note) and cp_elementos_en_compas[0].duration.quarterLength == 2.0 and \
-                 isinstance(cp_elementos_en_compas[1], note.Note) and cp_elementos_en_compas[1].duration.quarterLength == 2.0:
-                nota_cp_tf_actual = cp_elementos_en_compas[0]
-                nota_cp_td_actual = cp_elementos_en_compas[1]
-            else:
-                 errores.append(f"Compás {i+1} (CP): Ritmo penúltimo no esperado. Debe ser redonda o dos blancas.")
-        else: # Compases intermedios
-            if num_elements_cp == 2 and \
-                 isinstance(cp_elementos_en_compas[0], note.Note) and cp_elementos_en_compas[0].duration.quarterLength == 2.0 and \
-                 isinstance(cp_elementos_en_compas[1], note.Note) and cp_elementos_en_compas[1].duration.quarterLength == 2.0:
-                nota_cp_tf_actual = cp_elementos_en_compas[0]
-                nota_cp_td_actual = cp_elementos_en_compas[1]
-            else:
-                errores.append(f"Compás {i+1} (CP): Ritmo intermedio no esperado. Deben ser dos blancas.")
-
-        # --- ANÁLISIS ARMÓNICO ---
-        if not nota_cp_tf_actual and not nota_cp_td_actual and not (is_first_measure_cp and num_elements_cp == 1 and cp_elementos_en_compas[0].isRest):
-            # Si no se pudieron determinar las notas del CP y no es un silencio de redonda inicial,
-            # probablemente por un error de ritmo ya reportado. Continuar al siguiente compás para el análisis armónico.
-            cf_nota_anterior_tf = cf_nota_actual_tf # CF avanza
-            cp_nota_anterior_tf = None # CP no tuvo nota efectiva
-            continue
-
-        if nota_cp_tf_actual:
-            if reglas.es_disonancia(cf_nota_actual_tf, nota_cp_tf_actual):
-                intervalo_obj = interval.Interval(cf_nota_actual_tf, nota_cp_tf_actual)
-                errores.append(f"Compás {i+1} (CP): Tiempo Fuerte. Intervalo disonante '{intervalo_obj.niceName}' ({cf_nota_actual_tf.nameWithOctave} vs {nota_cp_tf_actual.nameWithOctave}). Debe ser consonante.")
-            
-            if cf_nota_anterior_tf and cp_nota_anterior_tf: 
-                if reglas.quintas_octavas_consecutivas(cf_nota_anterior_tf, cp_nota_anterior_tf, cf_nota_actual_tf, nota_cp_tf_actual):
-                    int_ant = interval.Interval(cf_nota_anterior_tf, cp_nota_anterior_tf)
-                    int_act = interval.Interval(cf_nota_actual_tf, nota_cp_tf_actual)
-                    tipo_paralela = "Quintas" if '5' in int_ant.name else "Octavas/Unísonos"
-                    errores.append(f"Paralelismo de {tipo_paralela} (TFs): Compás {i} ({cp_nota_anterior_tf.nameWithOctave}) a Compás {i+1} ({nota_cp_tf_actual.nameWithOctave}) contra CF. Intervalos: {int_ant.niceName} -> {int_act.niceName}.")
-            
-            cf_nota_anterior_tf = cf_nota_actual_tf
-            cp_nota_anterior_tf = nota_cp_tf_actual
-        else: 
-            cf_nota_anterior_tf = cf_nota_actual_tf
-            cp_nota_anterior_tf = None
-
-        if nota_cp_td_actual and nota_cp_tf_actual: 
-            if reglas.es_disonancia(cf_nota_actual_tf, nota_cp_td_actual):
-                es_paso_valido = False
-                if reglas.es_consonancia(cf_nota_actual_tf, nota_cp_tf_actual):
-                    mov_tf_a_td = interval.Interval(nota_cp_tf_actual, nota_cp_td_actual)
-                    if mov_tf_a_td.isStep:
-                        siguiente_nota_cp_tf_para_paso = None
-                        if (i + 1) < min_compases_analizables : # Si hay un siguiente compás
-                            siguiente_cp_compas_obj = cp_measures_list[i+1]
-                            siguiente_cp_elementos_compas = [el for el in siguiente_cp_compas_obj.flat.notesAndRests if not isinstance(el, chord.Chord)]
-                            # Lógica para obtener la primera nota efectiva del siguiente compás del CP
-                            if len(siguiente_cp_elementos_compas) > 0:
-                                if isinstance(siguiente_cp_elementos_compas[0], note.Note) and siguiente_cp_elementos_compas[0].duration.quarterLength >= 2.0 : # Blanca o Redonda
-                                     siguiente_nota_cp_tf_para_paso = siguiente_cp_elementos_compas[0]
-                                elif len(siguiente_cp_elementos_compas) > 1 and siguiente_cp_elementos_compas[0].isRest and isinstance(siguiente_cp_elementos_compas[1], note.Note): # Silencio + nota
-                                     siguiente_nota_cp_tf_para_paso = siguiente_cp_elementos_compas[1]
-                        
-                        if siguiente_nota_cp_tf_para_paso:
-                            mov_td_a_sigtf = interval.Interval(nota_cp_td_actual, siguiente_nota_cp_tf_para_paso)
-                            if mov_td_a_sigtf.isStep and mov_tf_a_td.direction == mov_td_a_sigtf.direction:
-                                es_paso_valido = True
-                
-                if not es_paso_valido:
-                    intervalo_td_obj = interval.Interval(cf_nota_actual_tf, nota_cp_td_actual)
-                    errores.append(f"Compás {i+1} (CP): Tiempo Débil. Disonancia '{intervalo_td_obj.niceName}' ({cf_nota_actual_tf.nameWithOctave} vs {nota_cp_td_actual.nameWithOctave}). No es una nota de paso válida (verificar consonancia del TF, grados conjuntos y dirección del movimiento).")
+    datos_intervalos_svg = []
+    observaciones_textuales = []
+    ids_notas_rojas = [] 
     
-    errores_inicio_final = reglas.verificar_inicio_final_segunda_especie_modificado(cf_part_obj, cp_part_obj)
-    errores.extend(errores_inicio_final)
+    cf_part_obj = cf_part_seleccionada
+    cp_part_obj = cp_part_seleccionada
 
-    return errores
+    if not cf_part_obj or not cp_part_obj:
+        errores.append("Error Crítico: Partes de Cantus Firmus y/o Contrapunto no proporcionadas correctamente.")
+        return ResultadoAnalisisSegundaEspecie(errores, [], [], "Análisis fallido", [])
+
+    # --- 1. Recopilación de todos los intervalos para la anotación gráfica ---
+    cp_notes_all = list(cp_part_obj.flatten().notes)
+    for cp_nota in cp_notes_all:
+        cf_notes_simultaneas = cf_part_obj.flatten().getElementsByOffset(cp_nota.offset, mustBeginInSpan=False, classList=[note.Note])
+        if cf_notes_simultaneas:
+            cf_nota = cf_notes_simultaneas[0]
+            intervalo_obj = interval.Interval(noteStart=cf_nota, noteEnd=cp_nota)
+            datos_intervalos_svg.append((cp_nota, cf_nota, intervalo_obj))
+
+    # --- 2. Análisis de Reglas Básicas (Paralelas, Inicio, Final) ---
+    errores.extend(reglas.verificar_inicio_final_segunda_especie_modificado(cf_part_obj, cp_part_obj))
+    
+    cp_strong_beat_notes = [n for n in cp_notes_all if n.beat == 1.0]
+    cf_strong_beat_notes_paired = []
+    for cp_tf_note in cp_strong_beat_notes:
+        cf_notes = cf_part_obj.flatten().getElementsByOffset(cp_tf_note.offset, mustBeginInSpan=False, classList=[note.Note])
+        if cf_notes:
+            cf_strong_beat_notes_paired.append(cf_notes[0])
+
+    for i in range(len(cp_strong_beat_notes) - 1):
+        if i < len(cf_strong_beat_notes_paired) -1:
+            if reglas.quintas_octavas_consecutivas(cf_strong_beat_notes_paired[i], cp_strong_beat_notes[i], cf_strong_beat_notes_paired[i+1], cp_strong_beat_notes[i+1]):
+                errores.append(f"Paralelismo de 5as/8as entre tiempos fuertes de compases {cp_strong_beat_notes[i].measureNumber} y {cp_strong_beat_notes[i+1].measureNumber}.")
+
+    # --- 3. ANÁLISIS DE FIGURAS DISONANTES (NUEVA LLAMADA) ---
+    try:
+        errores_figuras, obs_figuras, ids_rojos_figuras = reglas.analizar_figuras_disonantes_2da_especie(cp_part_obj, cf_part_obj)
+        errores.extend(errores_figuras)
+        if obs_figuras:
+            if any(obs.strip() and "no se detectaron" not in obs.lower() for obs in obs_figuras):
+                observaciones_textuales.append("--- Análisis de Figuras Disonantes ---")
+            observaciones_textuales.extend(obs_figuras)
+        ids_notas_rojas.extend(ids_rojos_figuras)
+    except Exception as e_figuras_call:
+        print(f"ERROR al llamar a reglas.analizar_figuras_disonantes_2da_especie: {e_figuras_call}")
+        errores.append(f"Error interno durante el análisis de figuras: {e_figuras_call}")
+
+    # --- 4. Análisis Descriptivo (Movimiento) ---
+    try:
+        cp_part_name_display = cp_part_obj.partName or getattr(cp_part_obj, 'id', "Contrapunto")
+        cf_part_name_display = cf_part_obj.partName or getattr(cf_part_obj, 'id', "Cantus Firmus")
+        observaciones_textuales.append(f"--- Movimiento Melódico del {cp_part_name_display} ---")
+        observaciones_textuales.extend(describir_movimiento_melodico_voz(cp_notes_all, cp_part_name_display))
+        observaciones_textuales.append(f"--- Movimiento Melódico del {cf_part_name_display} ---")
+        observaciones_textuales.extend(describir_movimiento_melodico_voz(list(cf_part_obj.flatten().notes), cf_part_name_display))
+        if cp_strong_beat_notes and cf_strong_beat_notes_paired:
+            observaciones_textuales.append(f"--- Movimiento Entre Voces ({cp_part_name_display} vs {cf_part_name_display} - Tiempos Fuertes) ---")
+            observaciones_textuales.extend(identificar_movimiento_entre_voces(cp_strong_beat_notes, cf_strong_beat_notes_paired))
+    except Exception as e_mov:
+        observaciones_textuales.append("Error generando descripciones de movimiento.")
+        
+    if not errores:
+        evaluacion_general = "¡Ejercicio parece cumplir las reglas de segunda especie!"
+    else:
+        evaluacion_general = f"Se encontraron {len(errores)} problemas/errores en el ejercicio de segunda especie."
+
+    return ResultadoAnalisisSegundaEspecie(errores, datos_intervalos_svg, observaciones_textuales, evaluacion_general, ids_notas_rojas)

@@ -1,1 +1,26 @@
+# --- Seguridad (Credenciales) ---
 firebase-creds.json
+serviceAccountKey.json
+.env
+
+# --- Python (Archivos temporales y compilados) ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Entorno Virtual (IMPORTANTE) ---
+# Esto ignora toda la carpeta 'venv' que se ve en tu explorador
+venv/
+env/
+
+# --- Archivos Generados por tu App ---
+# Ignoramos PDFs y SVGs para que no ensucien el historial
+*.pdf 
+*.svg
+*.xml
+*.musicxml
+
+# --- Carpetas de salida específicas ---
+debug_output/
+material_didactico_output/

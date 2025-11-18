@@ -1,4 +1,4 @@
-# verovio_pdf.py (con nueva función para obtener ruta SVG)
+# verovio_pdf.py (v6 - Conexión final para pasar IDs rojos al anotador)
 
 import os
 import verovio
@@ -6,240 +6,207 @@ import cairosvg
 import tempfile
 import shutil
 import traceback
+import xml.etree.ElementTree as ET 
+import re 
+from music21 import note as m21note
 
-# --- Importación de la función de anotación ---
-ANNOTATION_FUNCTION_LOADED = False
+SVG_NS_VEROVIO = "http://www.w3.org/2000/svg"
+ET.register_namespace('', SVG_NS_VEROVIO)
+NAMESPACES_SVG_MAP = {'svg': SVG_NS_VEROVIO}
+
+def _get_note_svg_coords(svg_root_et, note_element_g):
+    # Extrae las coordenadas X, Y de un elemento de nota <g> del SVG.
+    if note_element_g is None: return None
+    try:
+        # Intenta encontrar las coordenadas en el elemento <use> dentro de <g class="notehead">
+        notehead_group = note_element_g.find("./svg:g[@class='notehead']", NAMESPACES_SVG_MAP)
+        if notehead_group is None: notehead_group = note_element_g.find("./svg:g[@data-class='notehead']", NAMESPACES_SVG_MAP)
+        if notehead_group is not None:
+            use_element = notehead_group.find("./svg:use", NAMESPACES_SVG_MAP)
+            if use_element is not None:
+                x_attr = use_element.get('x'); y_attr = use_element.get('y')
+                if x_attr is not None and y_attr is not None:
+                    try: return {'x': float(x_attr), 'y': float(y_attr)}
+                    except ValueError: pass 
+        
+        # Como fallback, intenta encontrar las coordenadas en el atributo 'transform' del grupo principal
+        transform_attr = note_element_g.get('transform')
+        if transform_attr and "translate" in transform_attr:
+            try:
+                match = re.search(r"translate\(\s*([-\d\.]+)\s*[, ]?\s*([-\d\.]+)\s*\)", transform_attr)
+                if match: return {'x': float(match.group(1)), 'y': float(match.group(2))}
+            except Exception: pass 
+    except Exception as e_find: 
+        print(f"Error (Coords) extrayendo coords de elemento SVG: {e_find}")
+    return None
+
+# --- Carga dinámica de funciones de anotación ---
+ANNOTATION_FUNC_1RA_LOADED = False
 try:
     from primera_especie.anotador_svg_intervalos import anotar_svg_con_intervalos_primera_especie
-    ANNOTATION_FUNCTION_LOADED = True
-    # print("DEBUG (verovio_pdf): Función 'anotar_svg_con_intervalos_primera_especie' cargada exitosamente.") # Ya lo tienes en tu código original
-except ImportError as e:
-    print(f"ADVERTENCIA (verovio_pdf): No se pudo importar 'anotar_svg_con_intervalos_primera_especie': {e}")
-    def anotar_svg_con_intervalos_primera_especie(svg_string, score_m21, cf_part_m21, cp_part_m21, species="primera"):
-        return svg_string # Fallback
-except Exception as e_general_import:
-    print(f"ERROR INESPERADO (verovio_pdf): al intentar importar función de anotación: {e_general_import}")
-    traceback.print_exc()
-    def anotar_svg_con_intervalos_primera_especie(svg_string, score_m21, cf_part_m21, cp_part_m21, species="primera"):
-        return svg_string
+    ANNOTATION_FUNC_1RA_LOADED = True
+except ImportError : pass 
+
+ANNOTATION_FUNC_2DA_LOADED = False
+try:
+    from segunda_especie.anotador_svg_segunda import anotar_svg_intervalos_2da_especie
+    ANNOTATION_FUNC_2DA_LOADED = True
+except ImportError : pass 
 
 def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
-    # ... (esta función permanece igual que en tu código) ...
-    # Solo asegúrate de que esta función devuelve: svg_content_str, error_msg_verovio
-    print(f"--- DEBUG (SVG Gen): Iniciando generar_svg_de_musicxml ---")
-    print(f"DEBUG (SVG Gen): musicxml_path: {musicxml_path}")
-    
+    # Genera una cadena de texto SVG a partir de un archivo MusicXML usando Verovio.
+    print(f"--- DEBUG (SVG Gen): Iniciando generar_svg_de_musicxml para '{musicxml_path}' ---")
     if verovio_options_dict is None: 
-        verovio_options_dict = {
-            "pageHeight": 600, "adjustPageHeight": True, "scale": 60,
-            "pageMarginTop": 40, "pageMarginBottom": 40, 
-            "pageMarginLeft": 40, "pageMarginRight": 40,
-            "landscape": 0, "breaks": "none", "svgHtml5": True # Añadido svgHtml5 por si acaso
-        }
-    print(f"DEBUG (SVG Gen): Opciones de Verovio a usar: {verovio_options_dict}")
-
+        verovio_options_dict = {"pageHeight": 600, "adjustPageHeight": True, "scale": 60, "pageMarginTop": 40, "pageMarginBottom": 40, "pageMarginLeft": 40, "pageMarginRight": 40, "landscape": 0, "breaks": "none", "svgHtml5": True}
+    
     svg_content_str = ""
     error_msg_verovio = None
-    tk_instance = None # Definir fuera del try para que esté en el scope del finally si es necesario
+    
     try:
         tk_instance = verovio.toolkit()
-        default_data_path = os.path.join(os.path.dirname(verovio.__file__), "data")
-        if not os.path.exists(default_data_path):
-            print(f"ADVERTENCIA CRÍTICA (SVG Gen): Ruta de recursos Verovio NO ENCONTRADA: {default_data_path}")
-        tk_instance.setResourcePath(default_data_path) # Asegúrate que esto se llama
+        try:
+            default_data_path = os.path.join(os.path.dirname(verovio.__file__), "data")
+            if not os.path.exists(default_data_path):
+                default_data_path = os.path.join(os.path.dirname(verovio.__file__), '..', 'share', 'verovio', "data")
+                if not os.path.exists(default_data_path): default_data_path = "/usr/local/share/verovio/data" 
+            if os.path.exists(default_data_path): 
+                tk_instance.setResourcePath(default_data_path)
+            else: 
+                print(f"ADVERTENCIA CRÍTICA (SVG Gen): Ruta de recursos Verovio NO ENCONTRADA.")
+        except Exception as e_path: 
+            print(f"ERROR (SVG Gen): Configurando ruta de recursos Verovio: {e_path}")
+        
         tk_instance.setOptions(verovio_options_dict)
-
-        with open(musicxml_path, "r", encoding="utf-8") as f:
+        with open(musicxml_path, "r", encoding="utf-8") as f: 
             musicxml_data_str = f.read()
-
+        
         if not tk_instance.loadData(musicxml_data_str):
-            error_msg_verovio = "Verovio no pudo cargar los datos del archivo MusicXML."
-            svg_content_str = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="100"><text x="10" y="40" fill="red">{error_msg_verovio}</text></svg>'
-            print(f"DEBUG (SVG Gen): Error al cargar datos en Verovio: {error_msg_verovio}")
+            error_msg_verovio = "Verovio no pudo cargar los datos del MusicXML."
+            svg_content_str = f'<svg xmlns="{SVG_NS_VEROVIO}" width="600" height="100"><text x="10" y="40" fill="red">{error_msg_verovio}</text></svg>'
         else:
             svg_temp_str = tk_instance.renderToSVG(1) 
-            svg_content_str = svg_temp_str.replace('overflow="inherit"', 'overflow="visible"')
-            print(f"DEBUG (SVG Gen): SVG generado exitosamente.")
+            try:
+                with open("debug_raw_verovio_output.svg", "w", encoding="utf-8") as f_debug_raw: 
+                    f_debug_raw.write(svg_temp_str)
+            except Exception as e_save_raw: 
+                print(f"ERROR (SVG Gen): No se pudo guardar debug_raw_verovio_output.svg: {e_save_raw}")
             
-            # Guardar SVG de depuración (opcional pero útil)
-            # debug_svg_path = "debug_verovio_output_raw.svg" 
-            # try:
-            #     with open(debug_svg_path, "w", encoding="utf-8") as f_svg_debug:
-            #         f_svg_debug.write(svg_content_str)
-            #     print(f"DEBUG (SVG Gen): SVG crudo de Verovio guardado en {os.path.abspath(debug_svg_path)}") 
-            # except Exception as e_save_svg:
-            #     print(f"DEBUG (SVG Gen): Error al guardar SVG crudo de depuración: {e_save_svg}")
-
+            svg_content_str = svg_temp_str.replace('overflow="inherit"', 'overflow="visible"')
+            
     except Exception as e_verovio_exc:
-        error_msg_verovio = f"Excepción en Verovio al generar SVG: {str(e_verovio_exc)}"
-        print(f"DEBUG (SVG Gen): EXCEPCIÓN en Verovio:")
+        error_msg_verovio = f"Excepción en Verovio: {str(e_verovio_exc)}"
         traceback.print_exc()
-        svg_content_str = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="100"><text x="10" y="40" fill="red">Error Verovio: {e_verovio_exc}</text></svg>'
-    
-    print(f"--- DEBUG (SVG Gen): Fin generar_svg_de_musicxml ---")
+        svg_content_str = f'<svg xmlns="{SVG_NS_VEROVIO}" width="600" height="100"><text x="10" y="40" fill="red">Error Verovio: {e_verovio_exc}</text></svg>'
+        
     return svg_content_str, error_msg_verovio
 
-
 def convertir_svg_a_pdf_tempfile(svg_content_str, dpi=96):
-    # ... (esta función permanece igual que en tu código) ...
-    print(f"--- DEBUG (SVG->PDF): Iniciando convertir_svg_a_pdf_tempfile ---")
+    # Convierte una cadena de texto SVG a un archivo PDF temporal.
     temp_pdf_file_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", prefix="svg_to_pdf_") as tmp_pdf_file:
             temp_pdf_file_path = tmp_pdf_file.name
         cairosvg.svg2pdf(bytestring=svg_content_str.encode("utf-8"), write_to=temp_pdf_file_path, dpi=dpi)
         if not os.path.exists(temp_pdf_file_path) or os.path.getsize(temp_pdf_file_path) == 0:
-            if os.path.exists(temp_pdf_file_path): os.remove(temp_pdf_file_path)
-            raise IOError("CairoSVG falló en crear o llenar el PDF temporal.")
-        print(f"DEBUG (SVG->PDF): PDF temporal creado en {temp_pdf_file_path}")
+            if os.path.exists(temp_pdf_file_path):
+                try: os.remove(temp_pdf_file_path)
+                except Exception as e_remove_empty: print(f"Advertencia: No se pudo eliminar PDF temporal problemático {temp_pdf_file_path}: {e_remove_empty}")
+            raise IOError("CairoSVG falló en crear o llenar el PDF temporal correctamente.")
         return temp_pdf_file_path
     except Exception as e_cairosvg_exc:
-        print(f"DEBUG (SVG->PDF): EXCEPCIÓN SVG->PDF:")
+        print(f"ERROR (SVG->PDF): EXCEPCIÓN SVG->PDF: {e_cairosvg_exc}") 
         traceback.print_exc()
         if temp_pdf_file_path and os.path.exists(temp_pdf_file_path):
             try: os.remove(temp_pdf_file_path)
-            except Exception: pass
+            except Exception as e_remove_err: print(f"Advertencia: No se pudo eliminar PDF temporal {temp_pdf_file_path} tras error: {e_remove_err}")
         return None
 
-# Función original para generar el PDF de la partitura (la conservamos)
-def generar_pdf_partitura(musicxml_path, 
-                          output_pdf="partitura.pdf", 
-                          verovio_options=None,
-                          score_m21_obj=None, 
-                          cf_part_m21_obj=None, 
-                          cp_part_m21_obj=None, 
-                          species_str="primera", 
-                          anotar_intervalos=False):
-    # ... (esta función permanece igual que en tu código) ...
-    print(f"\n--- DEBUG (PDF Partitura Principal): Iniciando generar_pdf_partitura ---")
-    print(f"DEBUG (PDF Partitura Principal): musicxml_path: {musicxml_path}, output_pdf: {output_pdf}")
-    print(f"DEBUG (PDF Partitura Principal): anotar_intervalos: {anotar_intervalos}, species_str: {species_str}")
-
-    if verovio_options is None:
-        verovio_options = {
-            "pageHeight": 600, "adjustPageHeight": True, "scale": 60,
-            "pageMarginTop": 40, "pageMarginBottom": 40, 
-            "pageMarginLeft": 40, "pageMarginRight": 40,
-            "landscape": 0, "breaks": "none", "svgHtml5": True
-        }
-        print(f"DEBUG (PDF Partitura Principal): Usando opciones de Verovio por defecto (generar_pdf_partitura).")
+def generar_pdf_partitura(musicxml_path, output_pdf="partitura.pdf", verovio_options=None,
+                          score_m21_obj=None, cf_part_m21_obj=None, cp_part_m21_obj=None, 
+                          species_str="primera", datos_anotacion_especie=None ):
+    print(f"\n--- DEBUG (PDF Partitura): Iniciando generar_pdf_partitura para especie: {species_str} ---")
     
     svg_string_original, error_svg_gen = generar_svg_de_musicxml(musicxml_path, verovio_options)
+    if error_svg_gen: print(f"ERROR (PDF Partitura): Error de Verovio al generar SVG base: {error_svg_gen}")
     
-    if error_svg_gen:
-        print(f"DEBUG (PDF Partitura Principal): Error de Verovio al generar SVG: {error_svg_gen}")
-    
-    final_svg_para_conversion = svg_string_original
+    final_svg_string_para_conversion = svg_string_original 
 
-    if anotar_intervalos and ANNOTATION_FUNCTION_LOADED and score_m21_obj and cf_part_m21_obj and cp_part_m21_obj:
-        print("DEBUG (PDF Partitura Principal): Intentando anotar SVG con intervalos...")
+    if score_m21_obj and (ANNOTATION_FUNC_1RA_LOADED or ANNOTATION_FUNC_2DA_LOADED):
+        svg_root_et = None
         try:
-            if species_str == "primera":
-                final_svg_para_conversion = anotar_svg_con_intervalos_primera_especie(
-                    svg_string_original, score_m21_obj, cf_part_m21_obj, cp_part_m21_obj, species=species_str
-                )
-                print("DEBUG (PDF Partitura Principal): Anotación SVG para primera especie intentada.")
+            if isinstance(svg_string_original, str) and svg_string_original.strip().startswith('<?xml'):
+                svg_string_cleaned = svg_string_original.split('?>', 1)[-1].strip()
+            else: svg_string_cleaned = svg_string_original
+            svg_root_et = ET.fromstring(svg_string_cleaned)
+        except ET.ParseError as e_parse: 
+            print(f"ERROR (PDF Partitura): No se pudo parsear SVG: {e_parse}"); svg_root_et = None
+
+        if svg_root_et is not None:
+            print("DEBUG (PDF Partitura): --- INICIO EXTRACCIÓN DE COORDENADAS (Mapeo por Grupo de Pentagramas) ---")
+            all_note_coords_dict = {}
+            
+            # Estrategia de mapeo robusta que agrupa pentagramas por parte
+            svg_all_staves = svg_root_et.findall(".//svg:g[@data-class='staff']", namespaces=NAMESPACES_SVG_MAP)
+            m21_parts_in_score_order = score_m21_obj.parts
+            
+            num_parts = len(m21_parts_in_score_order)
+            if num_parts > 0 and len(svg_all_staves) % num_parts == 0:
+                for i in range(num_parts):
+                    part_obj = m21_parts_in_score_order[i]
+                    part_id = getattr(part_obj, 'id', f'part_{i}')
+                    
+                    m21_notes_in_part = [n for n in part_obj.flatten().notes if hasattr(n, 'id') and n.id]
+                    
+                    svg_notes_in_grouped_staves = []
+                    for j, staff_element in enumerate(svg_all_staves):
+                        if j % num_parts == i:
+                            svg_notes_in_grouped_staves.extend(staff_element.findall(".//svg:g[@data-class='note']", namespaces=NAMESPACES_SVG_MAP))
+                    
+                    if len(m21_notes_in_part) == len(svg_notes_in_grouped_staves):
+                        for k, m21_note_obj in enumerate(m21_notes_in_part):
+                            svg_note_element = svg_notes_in_grouped_staves[k]
+                            coords = _get_note_svg_coords(svg_root_et, svg_note_element)
+                            if coords:
+                                all_note_coords_dict[m21_note_obj.id] = coords
+                    else:
+                        print(f"    ADVERTENCIA CRÍTICA: Desajuste de notas para la parte {part_id}. No se mapeará esta parte.")
             else:
-                print(f"DEBUG (PDF Partitura Principal): Anotación no implementada para '{species_str}'.")
-        except Exception as e_anotacion:
-            print(f"DEBUG (PDF Partitura Principal): Error durante la anotación del SVG: {e_anotacion}")
-            traceback.print_exc()
-    elif anotar_intervalos:
-        print("DEBUG (PDF Partitura Principal): Anotación solicitada pero faltan datos/función.")
+                print(f"ADVERTENCIA CRÍTICA: El número de pentagramas en el SVG ({len(svg_all_staves)}) no es un múltiplo del número de partes en music21 ({num_parts}).")
 
-    ruta_pdf_temporal = convertir_svg_a_pdf_tempfile(final_svg_para_conversion)
+            print(f"DEBUG (PDF Partitura): --- FIN EXTRACCIÓN --- Coordenadas extraídas para {len(all_note_coords_dict)} notas en TOTAL.")
+            
+            # --- LÓGICA DE LLAMADA AL ANOTADOR (CORREGIDA) ---
+            annotated_svg_string = None
+            if species_str == "segunda" and ANNOTATION_FUNC_2DA_LOADED and datos_anotacion_especie:
+                datos_intervalos_para_anotador = datos_anotacion_especie.get('intervalos')
+                # --- CAMBIO IMPORTANTE AQUÍ ---
+                # Extraemos la lista de IDs rojos y se la pasamos al anotador
+                ids_rojos_para_anotador = datos_anotacion_especie.get('ids_rojos', [])
+                
+                try: 
+                    annotated_svg_string = anotar_svg_intervalos_2da_especie(
+                        svg_string_original, 
+                        datos_intervalos_para_anotador, 
+                        all_note_coords_dict,
+                        ids_notas_rojas=ids_rojos_para_anotador # Pasamos la lista como argumento
+                    )
+                except Exception as e: print(f"ERROR anotando 2da: {e}"); traceback.print_exc()
+            
+            # (Aquí iría la lógica para primera especie si también la adaptamos)
 
-    if not ruta_pdf_temporal:
-        print(f"ERROR CRÍTICO (PDF Partitura Principal): No se pudo generar el PDF temporal.")
-        return None
-
-    ruta_pdf_final_disco = None
+            if annotated_svg_string: 
+                final_svg_string_para_conversion = annotated_svg_string
+    
+    # ... (Resto de la función sin cambios) ...
+    ruta_pdf_temporal = convertir_svg_a_pdf_tempfile(final_svg_string_para_conversion)
+    if not ruta_pdf_temporal: return None
     try:
-        if os.path.isabs(output_pdf): ruta_pdf_final_disco = output_pdf
-        else: ruta_pdf_final_disco = os.path.abspath(os.path.join(os.getcwd(), output_pdf))
-        
-        directorio_destino = os.path.dirname(ruta_pdf_final_disco)
-        if directorio_destino: os.makedirs(directorio_destino, exist_ok=True)
-
-        shutil.copy2(ruta_pdf_temporal, ruta_pdf_final_disco)
-        print(f"DEBUG (PDF Partitura Principal): PDF final copiado a: {ruta_pdf_final_disco}")
-        return ruta_pdf_final_disco
-    except Exception as e_copia_final_exc:
-        print(f"DEBUG (PDF Partitura Principal): EXCEPCIÓN al copiar PDF:")
-        traceback.print_exc()
-        return None
+        shutil.copy2(ruta_pdf_temporal, output_pdf)
+        print(f"DEBUG (PDF Partitura): PDF final copiado a: {output_pdf}")
+        return output_pdf
+    except Exception as e_copia_final_exc: 
+        print(f"ERROR (PDF Partitura): Excepción al copiar PDF final: {e_copia_final_exc}"); return None
     finally:
         if ruta_pdf_temporal and os.path.exists(ruta_pdf_temporal):
             try: os.remove(ruta_pdf_temporal)
-            except Exception: print(f"ADVERTENCIA: No se pudo eliminar temp PDF {ruta_pdf_temporal}")
-        print(f"--- DEBUG (PDF Partitura Principal): Fin generar_pdf_partitura ---")
-
-
-# --- NUEVA FUNCIÓN ---
-def generar_y_guardar_svg_anotado_temporal(musicxml_path, 
-                                        verovio_options=None,
-                                        score_m21_obj=None, 
-                                        cf_part_m21_obj=None, 
-                                        cp_part_m21_obj=None, 
-                                        species_str="primera", 
-                                        anotar_intervalos=False,
-                                        temp_svg_prefix="partitura_anotada_"):
-    """
-    Genera el SVG (potencialmente anotado) y lo guarda en un archivo temporal,
-    devolviendo la ruta a este archivo SVG.
-    """
-    print(f"\n--- DEBUG (SVG Temporal): Iniciando generar_y_guardar_svg_anotado_temporal ---")
-    
-    if verovio_options is None:
-        verovio_options = {
-            "pageHeight": 600, "adjustPageHeight": True, "scale": 60,
-            "pageMarginTop": 40, "pageMarginBottom": 40, 
-            "pageMarginLeft": 40, "pageMarginRight": 40,
-            "landscape": 0, "breaks": "none", "svgHtml5": True
-        }
-        print(f"DEBUG (SVG Temporal): Usando opciones de Verovio por defecto.")
-    
-    svg_string_original, error_svg_gen = generar_svg_de_musicxml(musicxml_path, verovio_options)
-    
-    if error_svg_gen:
-        print(f"ERROR (SVG Temporal): Error de Verovio al generar SVG base: {error_svg_gen}")
-        # Podríamos devolver None o lanzar una excepción si el SVG base falla
-        return None 
-    
-    final_svg_string = svg_string_original
-
-    if anotar_intervalos and ANNOTATION_FUNCTION_LOADED and score_m21_obj and cf_part_m21_obj and cp_part_m21_obj:
-        print("DEBUG (SVG Temporal): Intentando anotar SVG con intervalos...")
-        try:
-            if species_str == "primera":
-                final_svg_string = anotar_svg_con_intervalos_primera_especie(
-                    svg_string_original, score_m21_obj, cf_part_m21_obj, cp_part_m21_obj, species=species_str
-                )
-                print("DEBUG (SVG Temporal): Anotación SVG para primera especie completada.")
-            else:
-                print(f"DEBUG (SVG Temporal): Anotación no implementada para '{species_str}'.")
-        except Exception as e_anotacion:
-            print(f"ERROR (SVG Temporal): durante la anotación del SVG: {e_anotacion}")
-            traceback.print_exc()
-            # Decidir si continuar con el SVG no anotado o devolver None
-            # Por ahora, continuaremos con el SVG que tengamos (podría ser el original si la anotación falló)
-    elif anotar_intervalos:
-        print("ADVERTENCIA (SVG Temporal): Anotación solicitada pero faltan datos/función para anotar.")
-
-    # Guardar el SVG final en un archivo temporal
-    temp_svg_file_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".svg", prefix=temp_svg_prefix, mode="w", encoding="utf-8") as tmp_svg_file:
-            tmp_svg_file.write(final_svg_string)
-            temp_svg_file_path = tmp_svg_file.name
-        print(f"DEBUG (SVG Temporal): SVG final guardado en archivo temporal: {temp_svg_file_path}")
-        return temp_svg_file_path
-    except Exception as e_save_temp_svg:
-        print(f"ERROR (SVG Temporal): No se pudo guardar el SVG en un archivo temporal: {e_save_temp_svg}")
-        traceback.print_exc()
-        if temp_svg_file_path and os.path.exists(temp_svg_file_path): # Limpiar si se creó pero falló después
-            try: os.remove(temp_svg_file_path)
             except Exception: pass
-        return None
-    finally:
-        print(f"--- DEBUG (SVG Temporal): Fin generar_y_guardar_svg_anotado_temporal ---")
