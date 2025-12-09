@@ -1,4 +1,4 @@
-# segunda_especie/anotador_svg_segunda.py (v15 - Coloreado Final)
+# segunda_especie/anotador_svg_segunda.py (v29 - Alineación Perfecta / Pivote Fijo)
 
 import xml.etree.ElementTree as ET
 from music21 import interval as m21interval 
@@ -9,108 +9,119 @@ SVG_NS = "http://www.w3.org/2000/svg"
 ET.register_namespace('', SVG_NS) 
 NAMESPACES_MAP = {'svg': SVG_NS}
 
-def _get_simplified_interval_text_v6(interval_obj, mostrar_compuesto_entre_parentesis=True):
-    # Esta función de ayuda convierte un objeto de intervalo en texto simple (ej. '6', '5(12)').
+def _add_arrow(svg_root, ns, id="arrowhead", color="black"):
+    defs = svg_root.find(".//svg:defs", ns)
+    if defs is None:
+        defs = ET.Element(f"{{{ns['svg']}}}defs")
+        svg_root.insert(0, defs)
+    if defs.find(f".//svg:marker[@id='{id}']", ns) is not None: return
+    
+    m = ET.Element(f"{{{ns['svg']}}}marker", {
+        "id": id, "viewBox": "0 0 10 10", "refX": "8", "refY": "5",
+        "markerWidth": "8", "markerHeight": "8", "orient": "auto-start-reverse"
+    })
+    ET.SubElement(m, f"{{{ns['svg']}}}path", {"d": "M0,2 L8,5 L0,8 Z", "fill": color})
+    defs.append(m)
+
+def _draw_line(group, c1, c2, ns, color="black", width="2.5", arrow_id=None):
+    if not c1 or not c2 or (c1['x'] == c2['x'] and c1['y'] == c2['y']): return
+    attr = {"x1": str(c1['x']), "y1": str(c1['y']), "x2": str(c2['x']), "y2": str(c2['y']),
+            "stroke": color, "stroke-width": width, "stroke-opacity": "0.7"}
+    if arrow_id: attr["marker-end"] = f"url(#{arrow_id})"
+    ET.SubElement(group, f"{{{ns['svg']}}}line", attr)
+
+def _get_interval_text(interval_obj):
     if not interval_obj: return "?"
-    nombre_simple_a_parsear = interval_obj.simpleName 
-    numero_simple_str = "?"
-    match_simple = re.search(r'\d+', nombre_simple_a_parsear)
-    if match_simple:
-        numero_simple_str = match_simple.group(0)
-    texto_final = numero_simple_str
-    is_actually_compound = False
-    if interval_obj.generic and interval_obj.generic.value is not None:
-        if interval_obj.generic.value > 8: is_actually_compound = True
-    if mostrar_compuesto_entre_parentesis and is_actually_compound:
-        numero_compuesto_str = "?"
-        if interval_obj.generic and interval_obj.generic.value:
-            numero_compuesto_str = str(interval_obj.generic.value)
-        if numero_compuesto_str != "?" and numero_compuesto_str != numero_simple_str:
-            texto_final += f"({numero_compuesto_str})"
-    return texto_final
+    simple = str(interval_obj.simpleName)
+    num = "".join(filter(str.isdigit, simple)) or "?"
+    if interval_obj.generic.value > 8:
+        return f"{num}({interval_obj.generic.value})"
+    return num
 
-# --- FIRMA DE FUNCIÓN MODIFICADA para aceptar la lista de IDs rojos ---
-def anotar_svg_intervalos_2da_especie(svg_string_original, datos_intervalos_2da, all_note_coords_dict, ids_notas_rojas=None):
-    print("\n--- DEBUG (Anotador 2da Especie): Iniciando anotación (v15 - Coloreado Final) ---")
-
-    # Inicializar ids_notas_rojas como un conjunto para búsquedas rápidas
-    if ids_notas_rojas is None:
-        ids_notas_rojas = set()
-    else:
-        ids_notas_rojas = set(ids_notas_rojas)
-
-    if not datos_intervalos_2da or not all_note_coords_dict:
-        print("DEBUG (Anotador 2da Especie): Faltan datos de intervalos o coordenadas. Saliendo sin anotar.")
-        return svg_string_original
-        
+def _calc_motion(n_cp_curr, n_cf_curr, n_cp_prev, n_cf_prev):
     try:
-        svg_root = ET.fromstring(svg_string_original.split('?>', 1)[-1].strip() if '<?xml' in svg_string_original else svg_string_original)
-    except ET.ParseError as e:
-        print(f"ERROR CRÍTICO (Anotador 2da Especie): Error parseando SVG: {e}")
-        return svg_string_original
-
-    target_group_for_annotations = svg_root.find(".//svg:g[@class='page-margin']", namespaces=NAMESPACES_MAP) or svg_root
+        cp1, cp2 = n_cp_prev.pitch.ps, n_cp_curr.pitch.ps
+        cf1, cf2 = n_cf_prev.pitch.ps, n_cf_curr.pitch.ps
+    except: return None, None
     
-    # --- Parámetros de Estilo ---
-    font_size_svg_units = 220 
-    color_normal = "forestgreen"
-    color_problema = "red" # Color para los problemas
-    font_family = "Arial, Helvetica, sans-serif"
+    d_cp = 1 if cp2 > cp1 else (-1 if cp2 < cp1 else 0)
+    d_cf = 1 if cf2 > cf1 else (-1 if cf2 < cf1 else 0)
 
-    # --- Ajustes de Posición ---
-    y_pivote_ajuste_desde_medio = -(font_size_svg_units * 0.4) 
-    offset_x_desde_cp = font_size_svg_units * 0.6 
+    if d_cp == 0 or d_cf == 0: return "O", "#6C757D" 
+    if d_cp == d_cf:
+        try:
+            i1 = m21interval.Interval(n_cf_prev, n_cp_prev).simpleName
+            i2 = m21interval.Interval(n_cf_curr, n_cp_curr).simpleName
+            if i1 == i2: return "P", "#D93025" 
+        except: pass
+        return "D", "#E69138" 
+    return "C", "#28A745" 
 
-    print(f"DEBUG (Anotador 2da Especie): Anotando {len(datos_intervalos_2da)} intervalos. {len(ids_notas_rojas)} notas marcadas para colorear.")
+def anotar_svg_intervalos_2da_especie(svg_str, datos_int, coords, ids_notas_rojas=None, datos_movimiento_melodico_cp=None):
+    print("\n--- DEBUG (Anotador 2da): Iniciando v29 (Alineación Fija) ---")
+    if not datos_int or not coords: return svg_str
+    ids_red = set(ids_notas_rojas or [])
+
+    try:
+        root = ET.fromstring(svg_str.split('?>', 1)[-1].strip() if '<?xml' in svg_str else svg_str)
+    except: return svg_str
+
+    _add_arrow(root, NAMESPACES_MAP, "arrow", "black")
+    group = root.find(".//svg:g[@class='page-margin']", NAMESPACES_MAP) or root
+
+    # --- CONFIGURACIÓN VISUAL ---
+    FONT_SIZE = 180  
+    Y_OFFSET_NUM = -(FONT_SIZE * 0.4)
+    Y_OFFSET_LETRA = -(FONT_SIZE * 0.85)
+    X_OFFSET = FONT_SIZE * 0.4
+
+    prev_cp, prev_cf = None, None
     
-    fixed_y_coordinate_for_intervals = None
+    # VARIABLE DE CONTROL PARA ALINEACIÓN
+    fixed_y_base = None 
 
-    for i, (cp_note, cf_note, intervalo_obj) in enumerate(datos_intervalos_2da):
-        cp_id = getattr(cp_note, 'id', None)
-        cf_id = getattr(cf_note, 'id', None)
-
-        if not cp_id or not cf_id: continue
+    # 1. DIBUJAR NÚMEROS Y LETRAS
+    for cp, cf, inter in datos_int:
+        c_cp, c_cf = coords.get(getattr(cp,'id',None)), coords.get(getattr(cf,'id',None))
+        if not c_cp or not c_cf: continue
         
-        coord_cp_svg = all_note_coords_dict.get(cp_id)
-        coord_cf_svg = all_note_coords_dict.get(cf_id)
+        # LÓGICA DE PIVOTE:
+        # Si es la primera vez (fixed_y_base es None), calculamos la altura.
+        # Si no, usamos la que ya calculamos.
+        if fixed_y_base is None:
+            fixed_y_base = (c_cp['y'] + c_cf['y']) / 2 + Y_OFFSET_NUM
         
-        if not coord_cp_svg or not coord_cf_svg:
-            continue
-            
-        interval_text = _get_simplified_interval_text_v6(intervalo_obj) 
+        # Usamos siempre la altura fija
+        y_final = fixed_y_base
+        x = c_cp['x'] + X_OFFSET
         
-        text_x = coord_cp_svg['x'] + offset_x_desde_cp
+        col = "#D93025" if getattr(cp,'id',None) in ids_red else "#0055AA"
         
-        if fixed_y_coordinate_for_intervals is None:
-            mid_y_inicial = (coord_cp_svg['y'] + coord_cf_svg['y']) / 2
-            fixed_y_coordinate_for_intervals = mid_y_inicial + y_pivote_ajuste_desde_medio
-            print(f"  PUNTO PIVOTE Y (v15) establecido en: {fixed_y_coordinate_for_intervals:.1f}")
-
-        text_y = fixed_y_coordinate_for_intervals
-        
-        # --- LÓGICA DE COLOREADO FINAL ---
-        # Comprobar si el ID de la nota del contrapunto está en el conjunto de notas rojas
-        fill_color = color_problema if cp_id in ids_notas_rojas else color_normal
-        
-        text_element = ET.Element(f"{{{SVG_NS}}}text", {
-            "x": str(text_x), "y": str(text_y),
-            "font-family": font_family, "font-size": str(font_size_svg_units) + "px",
-            "fill": fill_color, # Usar el color determinado
-            "text-anchor": "middle",
-            "dominant-baseline": "middle" 
+        # Número Intervalo
+        txt = ET.SubElement(group, f"{{{SVG_NS}}}text", {
+            "x": str(x), "y": str(y_final), "font-family": "Arial", 
+            "font-size": str(FONT_SIZE), "fill": col, "text-anchor": "middle"
         })
-        text_element.text = interval_text
-        target_group_for_annotations.append(text_element)
+        txt.text = _get_interval_text(inter)
         
-    final_svg_string = ET.tostring(svg_root, encoding="unicode")
-    
-    debug_svg_path = "debug_2da_especie_anotado_pos_v15.svg" # Nuevo nombre de versión
-    try:
-        with open(debug_svg_path, "w", encoding="utf-8") as f:
-            f.write(final_svg_string)
-        print(f"DEBUG (Anotador 2da Especie): SVG anotado (v15) guardado en {os.path.abspath(debug_svg_path)}")
-    except Exception as e:
-        print(f"DEBUG (Anotador 2da Especie): Error al guardar SVG de depuración: {e}")
-    
-    print("--- DEBUG (Anotador 2da Especie): Anotación (v15) completada. ---")
-    return final_svg_string
+        # Letra Movimiento (C, P, D, O)
+        if prev_cp and prev_cf:
+            letra, col_mov = _calc_motion(cp, cf, prev_cp, prev_cf)
+            if letra:
+                l_txt = ET.SubElement(group, f"{{{SVG_NS}}}text", {
+                    "x": str(x), "y": str(y_final + Y_OFFSET_LETRA), # Usamos también y_final
+                    "font-family": "Arial",
+                    "font-size": str(FONT_SIZE * 0.8), "fill": col_mov, "font-weight": "bold", "text-anchor": "middle"
+                })
+                l_txt.text = letra
+        prev_cp, prev_cf = cp, cf
+
+    # 2. FLECHAS
+    if datos_movimiento_melodico_cp:
+        for id1, id2, dir_str in datos_movimiento_melodico_cp:
+            c1, c2 = coords.get(id1), coords.get(id2)
+            if c1 and c2:
+                col = "green" if dir_str == "ascendente" else "red"
+                _draw_line(group, c1, c2, NAMESPACES_MAP, col, "4.0", "arrow")
+
+    return ET.tostring(root, encoding="unicode")

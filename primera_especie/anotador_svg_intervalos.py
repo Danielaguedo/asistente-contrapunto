@@ -129,7 +129,7 @@ def anotar_svg_con_intervalos_primera_especie(
         return svg_string 
 
     arrowhead_id_for_lines = "melodicMovementArrowhead"
-    # _add_arrowhead_marker_definition(svg_root, namespaces_map, arrowhead_id=arrowhead_id_for_lines, color="#333333", size="15") # Definición de marcador, opcional
+    _add_arrowhead_marker_definition(svg_root, namespaces_map, arrowhead_id=arrowhead_id_for_lines, color="#333333", size="15") # Definición de marcador, opcional
 
     page_margin_group = svg_root.find(".//svg:g[@class='page-margin']", namespaces=namespaces_map)
     target_group_for_annotations = page_margin_group if page_margin_group is not None else svg_root
@@ -182,7 +182,7 @@ def anotar_svg_con_intervalos_primera_especie(
     # --- Sección de Anotación de Líneas de Movimiento Coloreadas ---
     print(f"DEBUG (Anotador): Iniciando anotación de líneas de movimiento.")
     
-    USAR_CABEZAS_DE_FLECHA = False # Mantenemos esto en False por ahora
+    USAR_CABEZAS_DE_FLECHA = True # Mantenemos esto en False por ahora
     
     # CAMBIO: Aumentar el grosor de la línea
     line_stroke_width = "7.5" # 2.5 * 3 = 7.5

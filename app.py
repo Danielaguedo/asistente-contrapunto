@@ -1,4 +1,4 @@
-# app.py (Manejo final de IDs rojos para pasar al anotador)
+# app.py (Actualizado v16 - Soporte para flechas y colores en 2da Especie)
 
 import streamlit as st
 import datetime
@@ -85,60 +85,132 @@ ANALISIS_SEGUNDA_ESPECIE_SUBTITULO = "Análisis de Contrapunto de Segunda Especi
 # SECCIONES DE LA APLICACIÓN: PRIMERA ESPECIE 
 # ===============================================
 def cargar_archivo_primera_especie():
-    # ... (Sin cambios) ...
     st.subheader(ANALISIS_PRIMERA_ESPECIE_SUBTITULO)
-    with st.expander("📜 Recordatorio de las Reglas de la Primera Especie", expanded=False): st.markdown("""...""")
-    with st.expander("⚠️ ¡Importante! Cómo preparar correctamente tu archivo MusicXML", expanded=False): st.markdown("""...""")
+    with st.expander("📜 Recordatorio de las Reglas de la Primera Especie", expanded=False): 
+        st.markdown("""
+        * **Nota contra nota:** Solo redondas.
+        * **Consonancias:** Solo intervalos consonantes (3, 5, 6, 8, 1).
+        * **Inicio/Final:** Debe empezar y terminar en perfecta consonancia (8, 1, o 5 al inicio).
+        * **Movimiento:** Preferencia por movimiento contrario. Evitar paralelas perfectas (5tas, 8vas).
+        """)
+    with st.expander("⚠️ ¡Importante! Cómo preparar correctamente tu archivo MusicXML", expanded=False): 
+        st.markdown("Asegúrate de exportar en formato .musicxml o .xml sin comprimir.")
+        
     if 'uploader_primera_key_v9' not in st.session_state: st.session_state.uploader_primera_key_v9 = 0
     archivo = st.file_uploader("Selecciona un archivo MusicXML para Primera Especie", type=["xml", "musicxml"], key=f"uploader_primera_especie_widget_{st.session_state.uploader_primera_key_v9}")
+    
     if not archivo: st.info("Por favor, sube un archivo MusicXML para comenzar el análisis."); return
+    
     original_musicxml_path = None; musicxml_to_verovio_path = None; cf_part_m21_para_anotacion = None; cp_part_m21_para_anotacion = None
-    score_m21_obj = None; errores_lista = []; evaluacion_str = "Evaluación no disponible."; observaciones_lista = []; movimientos_cf_data = []; movimientos_cp_data = []; datos_intervalos_1ra = [] 
+    score_m21_obj = None
+    
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".musicxml", prefix="original_1ra_") as tmp: tmp.write(archivo.read()); original_musicxml_path = tmp.name
         with st.spinner("Procesando archivo MusicXML (1ra Especie)..."): score_m21_obj = converter.parse(original_musicxml_path)
+        
         if len(score_m21_obj.parts) != 2:
             st.error("❌ La partitura debe contener exactamente dos partes (voces).")
             if original_musicxml_path and os.path.exists(original_musicxml_path):
                 try: os.remove(original_musicxml_path)
-                except Exception as e_remove: print(f"Advertencia: No se pudo eliminar archivo temporal {original_musicxml_path}: {e_remove}")
+                except: pass
             return
+            
         st.markdown("---"); st.subheader("Identificación de Voces (1ra Especie)")
         part_display_map = {}; part_object_map = {}
         for i, p in enumerate(score_m21_obj.parts):
             part_id_key = p.id if (p.id and isinstance(p.id, str) and p.id.strip() != "") else f"part_{i}"; p.id = part_id_key 
             display_name = p.partName if p.partName else f"Voz {i+1} (ID: {part_id_key})"; part_display_map[part_id_key] = display_name; part_object_map[part_id_key] = p
+        
         part_keys_for_selectbox = list(part_object_map.keys()); default_cf_idx = 1 if len(part_keys_for_selectbox) > 1 else 0 
         session_key_cf_select = f"selected_cf_key_1ra_{archivo.name}_{archivo.size}"
         if session_key_cf_select not in st.session_state: st.session_state[session_key_cf_select] = part_keys_for_selectbox[default_cf_idx]
+        
         selected_cf_key = st.selectbox("Voz del Cantus Firmus (CF):", options=part_keys_for_selectbox, index=part_keys_for_selectbox.index(st.session_state[session_key_cf_select]), format_func=lambda x: part_display_map[x], key=f"cf_selector_1ra_widget_{archivo.name}_{archivo.size}")
         st.session_state[session_key_cf_select] = selected_cf_key; cf_part_m21_para_anotacion = part_object_map[selected_cf_key]; cp_part_m21_para_anotacion = None
         for key, part_obj_iter in part_object_map.items():
             if key != selected_cf_key: cp_part_m21_para_anotacion = part_obj_iter; break
+        
         if cf_part_m21_para_anotacion and cp_part_m21_para_anotacion: st.success(f"CF asignado a: **{part_display_map[cf_part_m21_para_anotacion.id]}**. \nCP asignado a: **{part_display_map[cp_part_m21_para_anotacion.id]}**.")
         else: st.error("Error crítico al asignar CF y CP."); return
+        
         st.markdown("---")
         for part_idx, part_iter in enumerate([cf_part_m21_para_anotacion, cp_part_m21_para_anotacion]):
             part_prefix = part_iter.id; current_note_index_in_part = 0
             for element in part_iter.recurse().getElementsByClass(m21note.GeneralNote):
                 if element.isNote: element.id = f"{part_prefix}_n{current_note_index_in_part}"; current_note_index_in_part += 1
+        
         musicxml_to_verovio_path = original_musicxml_path 
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".musicxml", prefix="m21_with_ids_1ra_") as tmp_m21_out: score_m21_obj.write('musicxml', fp=tmp_m21_out.name); musicxml_to_verovio_path = tmp_m21_out.name
         except Exception as e_write_m21: st.error(f"Error al re-escribir MusicXML con IDs (1ra Especie): {e_write_m21}")
-        # ... (resto de la lógica de 1ra especie sin cambios) ...
+        
+        # --- Lógica de Análisis 1ra Especie ---
+        resultado_analisis = seccion_analizar_ejercicio(score_m21_obj, cf_part_m21_para_anotacion, cp_part_m21_para_anotacion)
+        
+        errores_lista = resultado_analisis.errores
+        evaluacion_str = resultado_analisis.evaluacion
+        datos_intervalos_1ra = resultado_analisis.datos_intervalos_svg
+        movimientos_cf_data = resultado_analisis.movimientos_cf
+        movimientos_cp_data = resultado_analisis.movimientos_cp
+        
+        st.subheader("Resultados del Análisis (1ra Especie)")
+        if errores_lista:
+            st.markdown(f"**Se encontraron {len(errores_lista)} errores:**")
+            for e in errores_lista: st.error(f"❌ {e}")
+        else:
+            st.success(evaluacion_str)
+            
+        st.markdown("---"); st.subheader("Descargas (1ra Especie)")
+        col1, col2 = st.columns(2)
+        nombre_base = sanitizar_nombre_archivo(archivo.name)
+        verovio_opts = {"pageHeight": 600, "adjustPageHeight": True, "scale": 60, "svgHtml5": True}
+        
+        with col1:
+            # PDF PARTITURA 1RA
+            pdf_part_name = f"Partitura_1raEsp_{nombre_base}_Anotada.pdf"
+            datos_anot_1ra = {
+                'tipo': 'primera',
+                'movimientos_cf': movimientos_cf_data,
+                'movimientos_cp': movimientos_cp_data,
+                'intervalos': datos_intervalos_1ra
+            }
+            try:
+                ruta_pdf_part = verovio_pdf.generar_pdf_partitura(musicxml_to_verovio_path, pdf_part_name, verovio_opts, score_m21_obj, cf_part_m21_para_anotacion, cp_part_m21_para_anotacion, "primera", datos_anot_1ra)
+                if ruta_pdf_part:
+                    with open(ruta_pdf_part, "rb") as f: st.download_button("⬇️ Descargar Partitura (1ra)", f, pdf_part_name, "application/pdf")
+            except Exception as e: st.warning(f"Error PDF Partitura: {e}")
+
+        with col2:
+            # PDF ANALISIS 1RA
+            pdf_txt_name = f"Analisis_Txt_1raEsp_{nombre_base}.pdf"
+            datos_pdf_txt = {"especie": "Primera", "errores": errores_lista, "evaluacion": evaluacion_str, "fecha": str(datetime.date.today()), "observaciones": []}
+            try:
+                buf_txt = exportar_pdf.generar_pdf_analisis_estable(datos_pdf_txt)
+                if buf_txt: st.download_button("⬇️ Descargar Informe (1ra)", buf_txt, pdf_txt_name, "application/pdf")
+            except Exception as e: st.warning(f"Error PDF Informe: {e}")
+
     except Exception as e_general: st.error(f"Ocurrió un error general (1ra Especie): {e_general}"); traceback.print_exc()
     finally:
-        # ... (sin cambios) ...
-        pass
+        if original_musicxml_path and os.path.exists(original_musicxml_path):
+            try: os.remove(original_musicxml_path)
+            except: pass
+        if musicxml_to_verovio_path and os.path.exists(musicxml_to_verovio_path) and musicxml_to_verovio_path != original_musicxml_path:
+             try: os.remove(musicxml_to_verovio_path)
+             except: pass
 
 # ===============================================
 # SECCIONES DE LA APLICACIÓN: SEGUNDA ESPECIE
 # ===============================================
 def cargar_archivo_segunda_especie():
     st.subheader(ANALISIS_SEGUNDA_ESPECIE_SUBTITULO)
-    with st.expander("📜 Recordatorio de las Reglas de la Segunda Especie", expanded=False): st.markdown("""...""") 
-    with st.expander("⚠️ ¡Importante! Cómo preparar tu archivo MusicXML", expanded=False): st.markdown("""...""") 
+    with st.expander("📜 Recordatorio de las Reglas de la Segunda Especie", expanded=False): 
+        st.markdown("""
+        * **Dos notas contra una:** Blancas en el CP contra Redondas en el CF.
+        * **Tiempo fuerte (1):** Debe ser consonante.
+        * **Tiempo débil (2):** Puede ser disonante SI es nota de paso (grado conjunto).
+        * **Inicio/Final:** Reglas especiales de blancas y silencios.
+        """) 
+    with st.expander("⚠️ ¡Importante! Cómo preparar tu archivo MusicXML", expanded=False): st.markdown("Asegúrate de que el compás sea 4/4 o C, y el ritmo sea correcto.") 
 
     if 'uploader_segunda_key_v1' not in st.session_state: st.session_state.uploader_segunda_key_v1 = 0
     archivo_segunda = st.file_uploader("Selecciona un archivo MusicXML para Segunda Especie", type=["xml", "musicxml"], key=f"uploader_segunda_especie_widget_{st.session_state.uploader_segunda_key_v1}")
@@ -217,19 +289,22 @@ def cargar_archivo_segunda_especie():
         with st.spinner("Realizando análisis y generando PDF (2da Especie)..."):
             resultados_2da_obj = analizar_segunda_especie(score_for_verovio_2da, cf_part_2da, cp_part_2da)
             
-            # --- SECCIÓN MODIFICADA PARA MANEJAR IDS ROJOS ---
+            # --- SECCIÓN MODIFICADA: Extracción de datos segura ---
             errores_lista_2da = []
             datos_intervalos_2da = []
             observaciones_lista_2da = []
             evaluacion_str_2da = "Análisis no completado."
-            ids_rojos_2da = [] # Inicializar lista
+            ids_rojos_2da = [] 
+            movimientos_cp_data_2da = [] # Variable para las flechas
 
             if resultados_2da_obj:
-                errores_lista_2da = resultados_2da_obj.errores
-                datos_intervalos_2da = resultados_2da_obj.datos_intervalos_svg
-                observaciones_lista_2da = resultados_2da_obj.observaciones 
-                evaluacion_str_2da = resultados_2da_obj.evaluacion
-                ids_rojos_2da = resultados_2da_obj.ids_notas_rojas # Extraer la lista de IDs rojos
+                errores_lista_2da = getattr(resultados_2da_obj, 'errores', [])
+                datos_intervalos_2da = getattr(resultados_2da_obj, 'datos_intervalos_svg', [])
+                observaciones_lista_2da = getattr(resultados_2da_obj, 'observaciones', [])
+                evaluacion_str_2da = getattr(resultados_2da_obj, 'evaluacion', "Resultado desconocido")
+                ids_rojos_2da = getattr(resultados_2da_obj, 'ids_notas_rojas', [])
+                # Intenta obtener los movimientos, si no existen, usa lista vacía
+                movimientos_cp_data_2da = getattr(resultados_2da_obj, 'movimientos_cp', [])
             else:
                 st.error("El análisis de segunda especie no devolvió un objeto de resultado válido.")
             
@@ -253,14 +328,16 @@ def cargar_archivo_segunda_especie():
             st.markdown("---"); st.subheader("Descargas (2da Especie)")
             col_descarga_partitura_2da, col_descarga_analisis_2da = st.columns(2)
             nombre_base_saneado_2da = sanitizar_nombre_archivo(archivo_segunda.name); verovio_opts_2da = {"pageHeight": 600, "adjustPageHeight": True, "scale": 60, "pageMarginTop": 40, "pageMarginBottom": 40, "pageMarginLeft": 40, "pageMarginRight": 40, "breaks": "none", "landscape": 0, "svgHtml5": True }
+            
             with col_descarga_partitura_2da:
                 pdf_nombre_partitura_2da = f"Partitura_2daEsp_{nombre_base_saneado_2da}_Anotada.pdf"; ruta_pdf_partitura_anotada_2da = None
                 
-                # --- DICCIONARIO MODIFICADO PARA INCLUIR IDS ROJOS ---
+                # --- DICCIONARIO DE DATOS PARA EL PDF (Aquí pasamos las flechas) ---
                 datos_anot_2da = {
                     'tipo': 'segunda', 
                     'intervalos': datos_intervalos_2da,
-                    'ids_rojos': ids_rojos_2da # Añadir la lista al diccionario
+                    'ids_rojos': ids_rojos_2da,
+                    'movimientos_cp': movimientos_cp_data_2da # <--- Flechas
                 }
                 
                 boton_partitura_2da_deshabilitado = not bool(datos_intervalos_2da)
@@ -275,13 +352,14 @@ def cargar_archivo_segunda_especie():
                                 cf_part_m21_obj=cf_part_2da, 
                                 cp_part_m21_obj=cp_part_2da, 
                                 species_str="segunda", 
-                                datos_anotacion_especie=datos_anot_2da # Pasar el diccionario actualizado
+                                datos_anotacion_especie=datos_anot_2da 
                             )
                     except Exception as e_pdf_gen_2da: st.warning(f"⚠️ No se pudo generar PDF partitura (2da): {e_pdf_gen_2da}"); traceback.print_exc()
                     if ruta_pdf_partitura_anotada_2da and os.path.exists(ruta_pdf_partitura_anotada_2da):
                         with open(ruta_pdf_partitura_anotada_2da, "rb") as f: st.download_button(label="⬇️ Descargar Partitura Anotada (2da)", data=f, file_name=os.path.basename(ruta_pdf_partitura_anotada_2da), mime="application/pdf", key=f"dl_part_2da_{archivo_segunda.name}")
                     else: st.warning("⚠️ PDF partitura (2da) no generado.")
                 else: st.info("No hay datos para anotar partitura (2da)."); st.button("⬇️ Partitura Anotada (2da)", disabled=True, key=f"dl_part_2da_dis_{archivo_segunda.name}")
+            
             with col_descarga_analisis_2da:
                 pdf_nombre_analisis_2da = f"Analisis_Completo_2daEsp_{nombre_base_saneado_2da}.pdf"; datos_para_pdf_analisis_2da = {"especie": "Segunda", "errores": errores_lista_2da, "evaluacion": evaluacion_str_2da, "fecha": datetime.date.today().strftime("%Y-%m-%d"), "observaciones": observaciones_lista_2da, "cp_part_name": cp_part_2da.partName if cp_part_2da.partName else cp_part_2da.id, "cf_part_name": cf_part_2da.partName if cf_part_2da.partName else cf_part_2da.id }; buffer_analisis_2da = None
                 if errores_lista_2da or observaciones_lista_2da: 

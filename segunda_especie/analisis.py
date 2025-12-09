@@ -1,150 +1,123 @@
-# segunda_especie/analisis.py (v10 - Llamada a analizar_figuras_disonantes)
+# segunda_especie/analisis.py (v11 - Detección de Paralelas ACTIVADA)
 
-from music21 import note, chord, stream, interval
+from music21 import stream, interval, note as m21note, tempo, meter, clef, key
+from segunda_especie.reglas import (
+    analizar_figuras_disonantes_2da_especie,
+    verificar_inicio_final_segunda_especie_modificado,
+    quintas_octavas_consecutivas, # ¡Importante!
+    es_consonancia
+)
+import traceback
 
-# Importación relativa correcta para reglas.py
-from . import reglas
-
-# Importación de funciones de análisis de movimiento
-try:
-    from analisis_musical_comun.analisis_movimientos import describir_movimiento_melodico_voz, identificar_movimiento_entre_voces
-    print("DEBUG (2daEspecie analisis.py): Funciones de analisis_movimientos importadas.")
-except ImportError as e_mov:
-    print(f"ADVERTENCIA (2daEspecie analisis.py): No se pudo importar desde analisis_musical_comun: {e_mov}. Usando placeholders.")
-    def describir_movimiento_melodico_voz(lista_notas, nombre_voz="Voz"): return [f"Placeholder: Análisis melódico para {nombre_voz} no disponible."]
-    def identificar_movimiento_entre_voces(cp_notas, cf_notas): return ["Placeholder: Análisis de movimiento entre voces no disponible."]
-
-# --- Clase de Resultado (ya incluye ids_rojos) ---
 class ResultadoAnalisisSegundaEspecie:
-    def __init__(self, errores, datos_intervalos_svg, observaciones_textuales, evaluacion_general, ids_notas_rojas=None):
-        self.errores = errores if errores is not None else []
-        self.datos_intervalos_svg = datos_intervalos_svg if datos_intervalos_svg is not None else []
-        self.observaciones = observaciones_textuales if observaciones_textuales is not None else [] 
-        self.evaluacion = evaluacion_general if evaluacion_general is not None else "Evaluación no generada."
+    def __init__(self, errores, evaluacion, datos_intervalos_svg, observaciones, ids_notas_rojas=None, movimientos_cp=None):
+        self.errores = errores
+        self.evaluacion = evaluacion
+        self.datos_intervalos_svg = datos_intervalos_svg
+        self.observaciones = observaciones
         self.ids_notas_rojas = ids_notas_rojas if ids_notas_rojas is not None else []
+        self.movimientos_cp = movimientos_cp if movimientos_cp is not None else []
 
-# --- Funciones de identificación de partes (sin cambios) ---
-def es_parte_de_redondas(part_stream):
-    part_notes = list(part_stream.flatten().notes);
-    if not part_notes: return False
-    num_redondas = 0; num_otras_duraciones = 0
-    for el in part_stream.flatten().notesAndRests:
-        if isinstance(el, note.Note):
-            if el.duration.quarterLength == 4.0: num_redondas += 1
-            else: num_otras_duraciones +=1
-        elif isinstance(el, chord.Chord): return False
-    if num_redondas > 0 and num_otras_duraciones <= 1: return True
-    return False
-
-def es_ritmo_segunda_especie_flexible(part_stream):
-    if es_parte_de_redondas(part_stream): return False
-    part_notes_and_rests = list(part_stream.flatten().notesAndRests);
-    if not part_notes_and_rests: return False
-    num_blancas = 0; num_silencios_blanca = 0; num_redondas = 0
-    for el in part_notes_and_rests:
-        if isinstance(el, note.Note):
-            if el.duration.quarterLength == 2.0: num_blancas += 1
-            elif el.duration.quarterLength == 4.0: num_redondas +=1
-        elif isinstance(el, note.Rest):
-            if el.duration.quarterLength == 2.0: num_silencios_blanca +=1
-            elif el.duration.quarterLength == 4.0 and len(part_notes_and_rests) == 1 : return True 
-    return (num_blancas > 0 or num_silencios_blanca > 0)
+def _calcular_movimientos_melodicos(notes_list):
+    """Calcula si el movimiento es ascendente o descendente."""
+    movimientos = []
+    if len(notes_list) < 2: return movimientos
+    for i in range(len(notes_list) - 1):
+        n1 = notes_list[i]; n2 = notes_list[i+1]
+        if not hasattr(n1, 'id') or not hasattr(n2, 'id'): continue
+        p1 = n1.pitch.ps; p2 = n2.pitch.ps
+        tipo = "lateral"
+        if p2 > p1: tipo = "ascendente"
+        elif p2 < p1: tipo = "descendente"
+        movimientos.append((n1.id, n2.id, tipo))
+    return movimientos
 
 def identificar_cantus_firmus_y_contrapunto(score):
-    if len(score.parts) != 2: return None, None, "La partitura debe contener exactamente dos partes."
-    part0, part1 = score.parts[0], score.parts[1]; cf_part, cp_part = None, None
-    p0_es_cf = es_parte_de_redondas(part0); p1_es_cf = es_parte_de_redondas(part1)
-    p0_es_cp_flex = es_ritmo_segunda_especie_flexible(part0); p1_es_cp_flex = es_ritmo_segunda_especie_flexible(part1)
-    mensaje = ""
-    if p0_es_cf and p1_es_cp_flex: cf_part, cp_part = part0, part1; mensaje = "Identificado: Parte 1->CF, Parte 2->CP."
-    elif p1_es_cf and p0_es_cp_flex: cf_part, cp_part = part1, part0; mensaje = "Identificado: Parte 2->CF, Parte 1->CP."
-    elif p0_es_cf and not p1_es_cf: cf_part, cp_part = part0, part1; mensaje = "Identificado: Parte 1->CF. Parte 2 asume CP."
-    elif p1_es_cf and not p0_es_cf: cf_part, cp_part = part1, part0; mensaje = "Identificado: Parte 2->CF. Parte 1 asume CP."
-    elif p0_es_cp_flex and not p1_es_cp_flex and not p1_es_cf : cp_part, cf_part = part0, part1; mensaje = "Identificado: Parte 1->CP. Parte 2 asume CF."
-    elif p1_es_cp_flex and not p0_es_cp_flex and not p0_es_cf: cp_part, cf_part = part1, part0; mensaje = "Identificado: Parte 2->CP. Parte 1 asume CF."
-    else: 
-        if p0_es_cf and p1_es_cf: mensaje = "Ambigüedad: Ambas partes parecen CF."
-        elif p0_es_cp_flex and p1_es_cp_flex: mensaje = "Ambigüedad: Ambas partes parecen CP 2da esp."
-        else: mensaje = "No se pudo identificar CF/CP. Asignando P2->CF, P1->CP por defecto."
-        cf_part, cp_part = part1, part0
-    if cf_part and cp_part:
-        cf_part.id = cf_part.id if cf_part.id else 'CantusFirmus_auto_id' 
-        cp_part.id = cp_part.id if cp_part.id else 'Contrapunto_auto_id'
-        return cf_part, cp_part, mensaje
-    return None, None, mensaje
+    parts = list(score.parts)
+    if len(parts) != 2: return None, None, "Error: No hay 2 partes."
+    p0_notes = list(parts[0].flatten().notes)
+    p1_notes = list(parts[1].flatten().notes)
+    if not p0_notes or not p1_notes: return parts[0], parts[1], "Advertencia: Partes vacías."
+    avg0 = sum([n.duration.quarterLength for n in p0_notes]) / len(p0_notes)
+    avg1 = sum([n.duration.quarterLength for n in p1_notes]) / len(p1_notes)
+    if avg0 > avg1: return parts[0], parts[1], "Auto: Voz 1 es CF, Voz 2 es CP."
+    else: return parts[1], parts[0], "Auto: Voz 2 es CF, Voz 1 es CP."
 
-
-def analizar_segunda_especie(score_con_ids_en_notas, cf_part_seleccionada, cp_part_seleccionada):
-    """
-    Analiza un ejercicio de segunda especie.
-    Devuelve un objeto ResultadoAnalisisSegundaEspecie.
-    """
+def analizar_segunda_especie(score_original, cf_part, cp_part):
     errores = []
-    datos_intervalos_svg = []
-    observaciones_textuales = []
-    ids_notas_rojas = [] 
+    observaciones = []
+    datos_intervalos_svg = [] 
+    ids_notas_rojas = []      
     
-    cf_part_obj = cf_part_seleccionada
-    cp_part_obj = cp_part_seleccionada
-
-    if not cf_part_obj or not cp_part_obj:
-        errores.append("Error Crítico: Partes de Cantus Firmus y/o Contrapunto no proporcionadas correctamente.")
-        return ResultadoAnalisisSegundaEspecie(errores, [], [], "Análisis fallido", [])
-
-    # --- 1. Recopilación de todos los intervalos para la anotación gráfica ---
-    cp_notes_all = list(cp_part_obj.flatten().notes)
-    for cp_nota in cp_notes_all:
-        cf_notes_simultaneas = cf_part_obj.flatten().getElementsByOffset(cp_nota.offset, mustBeginInSpan=False, classList=[note.Note])
-        if cf_notes_simultaneas:
-            cf_nota = cf_notes_simultaneas[0]
-            intervalo_obj = interval.Interval(noteStart=cf_nota, noteEnd=cp_nota)
-            datos_intervalos_svg.append((cp_nota, cf_nota, intervalo_obj))
-
-    # --- 2. Análisis de Reglas Básicas (Paralelas, Inicio, Final) ---
-    errores.extend(reglas.verificar_inicio_final_segunda_especie_modificado(cf_part_obj, cp_part_obj))
-    
-    cp_strong_beat_notes = [n for n in cp_notes_all if n.beat == 1.0]
-    cf_strong_beat_notes_paired = []
-    for cp_tf_note in cp_strong_beat_notes:
-        cf_notes = cf_part_obj.flatten().getElementsByOffset(cp_tf_note.offset, mustBeginInSpan=False, classList=[note.Note])
-        if cf_notes:
-            cf_strong_beat_notes_paired.append(cf_notes[0])
-
-    for i in range(len(cp_strong_beat_notes) - 1):
-        if i < len(cf_strong_beat_notes_paired) -1:
-            if reglas.quintas_octavas_consecutivas(cf_strong_beat_notes_paired[i], cp_strong_beat_notes[i], cf_strong_beat_notes_paired[i+1], cp_strong_beat_notes[i+1]):
-                errores.append(f"Paralelismo de 5as/8as entre tiempos fuertes de compases {cp_strong_beat_notes[i].measureNumber} y {cp_strong_beat_notes[i+1].measureNumber}.")
-
-    # --- 3. ANÁLISIS DE FIGURAS DISONANTES (NUEVA LLAMADA) ---
     try:
-        errores_figuras, obs_figuras, ids_rojos_figuras = reglas.analizar_figuras_disonantes_2da_especie(cp_part_obj, cf_part_obj)
-        errores.extend(errores_figuras)
-        if obs_figuras:
-            if any(obs.strip() and "no se detectaron" not in obs.lower() for obs in obs_figuras):
-                observaciones_textuales.append("--- Análisis de Figuras Disonantes ---")
-            observaciones_textuales.extend(obs_figuras)
-        ids_notas_rojas.extend(ids_rojos_figuras)
-    except Exception as e_figuras_call:
-        print(f"ERROR al llamar a reglas.analizar_figuras_disonantes_2da_especie: {e_figuras_call}")
-        errores.append(f"Error interno durante el análisis de figuras: {e_figuras_call}")
-
-    # --- 4. Análisis Descriptivo (Movimiento) ---
-    try:
-        cp_part_name_display = cp_part_obj.partName or getattr(cp_part_obj, 'id', "Contrapunto")
-        cf_part_name_display = cf_part_obj.partName or getattr(cf_part_obj, 'id', "Cantus Firmus")
-        observaciones_textuales.append(f"--- Movimiento Melódico del {cp_part_name_display} ---")
-        observaciones_textuales.extend(describir_movimiento_melodico_voz(cp_notes_all, cp_part_name_display))
-        observaciones_textuales.append(f"--- Movimiento Melódico del {cf_part_name_display} ---")
-        observaciones_textuales.extend(describir_movimiento_melodico_voz(list(cf_part_obj.flatten().notes), cf_part_name_display))
-        if cp_strong_beat_notes and cf_strong_beat_notes_paired:
-            observaciones_textuales.append(f"--- Movimiento Entre Voces ({cp_part_name_display} vs {cf_part_name_display} - Tiempos Fuertes) ---")
-            observaciones_textuales.extend(identificar_movimiento_entre_voces(cp_strong_beat_notes, cf_strong_beat_notes_paired))
-    except Exception as e_mov:
-        observaciones_textuales.append("Error generando descripciones de movimiento.")
+        # 1. Reglas Inicio/Final y Figuras (Lo que ya tenías)
+        errores.extend(verificar_inicio_final_segunda_especie_modificado(cf_part, cp_part))
+        err_fig, obs_fig, ids_fig = analizar_figuras_disonantes_2da_especie(cp_part, cf_part)
+        errores.extend(err_fig)
+        observaciones.extend(obs_fig)
+        ids_notas_rojas.extend(ids_fig)
         
-    if not errores:
-        evaluacion_general = "¡Ejercicio parece cumplir las reglas de segunda especie!"
-    else:
-        evaluacion_general = f"Se encontraron {len(errores)} problemas/errores en el ejercicio de segunda especie."
+        # 2. Preparar datos
+        cp_flat = list(cp_part.flatten().notes)
+        cf_flat_stream = cf_part.flatten()
+        
+        # Variables para rastrear el "Tiempo Fuerte Anterior" (Para detectar paralelas de compás a compás)
+        last_downbeat_cp = None
+        last_downbeat_cf = None
+        
+        # Variables para rastrear la nota INMEDIATAMENTE anterior (Para paralelas consecutivas directas)
+        prev_note_cp = None
+        prev_note_cf = None
 
-    return ResultadoAnalisisSegundaEspecie(errores, datos_intervalos_svg, observaciones_textuales, evaluacion_general, ids_notas_rojas)
+        for n_cp in cp_flat:
+            # Buscar nota CF simultánea
+            notes_cf_sim = cf_flat_stream.getElementsByOffset(n_cp.offset, mustBeginInSpan=False, classList=[m21note.Note])
+            if not notes_cf_sim: continue
+            n_cf = notes_cf_sim[0]
+
+            # Calcular intervalo para SVG
+            try:
+                inter = interval.Interval(noteStart=n_cf, noteEnd=n_cp)
+                datos_intervalos_svg.append((n_cp, n_cf, inter))
+                
+                # --- ANÁLISIS DE PARALELAS (LA PARTE NUEVA) ---
+                
+                # A. Paralelas Inmediatas (Nota a Nota)
+                if prev_note_cp and prev_note_cf:
+                    if quintas_octavas_consecutivas(prev_note_cf, prev_note_cp, n_cf, n_cp):
+                        errores.append(f"Error: {inter.simpleName} paralelas consecutivas en compás {n_cp.measureNumber}.")
+                        ids_notas_rojas.extend([n_cp.id, prev_note_cp.id])
+
+                # B. Paralelas de Tiempo Fuerte a Tiempo Fuerte (Regla Clave de 2da Especie)
+                # Si estamos en tiempo fuerte (beat 1)
+                if n_cp.beat == 1.0:
+                    if last_downbeat_cp and last_downbeat_cf:
+                        if quintas_octavas_consecutivas(last_downbeat_cf, last_downbeat_cp, n_cf, n_cp):
+                             errores.append(f"Error Crítico: {inter.simpleName} paralelas entre tiempos fuertes (Compases {last_downbeat_cp.measureNumber}-{n_cp.measureNumber}).")
+                             ids_notas_rojas.extend([n_cp.id, last_downbeat_cp.id])
+                    
+                    # Actualizar "último tiempo fuerte visto"
+                    last_downbeat_cp = n_cp
+                    last_downbeat_cf = n_cf
+
+            except Exception as e: 
+                print(f"Error calculando intervalo/reglas en nota {n_cp.id}: {e}")
+
+            # Actualizar nota inmediata anterior
+            prev_note_cp = n_cp
+            prev_note_cf = n_cf
+
+        # 3. Movimientos Melódicos
+        movimientos_cp = _calcular_movimientos_melodicos(cp_flat)
+
+        # 4. Evaluación
+        if not errores:
+            evaluacion = "¡Excelente! Ejercicio correcto."
+        else:
+            evaluacion = f"Se encontraron {len(errores)} errores."
+            
+        return ResultadoAnalisisSegundaEspecie(errores, evaluacion, datos_intervalos_svg, observaciones, ids_notas_rojas, movimientos_cp)
+
+    except Exception as e:
+        traceback.print_exc()
+        return ResultadoAnalisisSegundaEspecie([f"Error interno: {str(e)}"], "Error crítico", [], [], [], [])
