@@ -5,3 +5,8 @@ verovio
 cairosvg
 reportlab
 Pillow
+
+# Backend API (Phase 2 - FastAPI).
+fastapi
+uvicorn
+python-multipart
