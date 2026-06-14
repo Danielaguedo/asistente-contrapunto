@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Asistente de Contrapunto — análisis académico de ejercicios de contrapunto en MusicXML. Carga tu ejercicio y recibe una partitura anotada y un informe en PDF." />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#5a1a1a" />
+  <title>Asistente de Contrapunto · Cátedra de Análisis Musical</title>
+
+  <!-- Fonts: Cinzel (display), Playfair Display (headings), EB Garamond (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <main class="manuscript" role="main">
+    <article class="folio" aria-labelledby="page-title">
+
+      <header class="masthead">
+        <p class="eyebrow">Cátedra de Contrapunto &middot; Anno MMXXVI</p>
+        <h1 id="page-title" class="grand-title">
+          <span class="grand-title__line">Asistente de</span>
+          <span class="grand-title__line grand-title__line--accent">Contrapunto</span>
+        </h1>
+        <div class="rule rule--ornate" aria-hidden="true">
+          <span class="rule__diamond"></span>
+        </div>
+        <p class="subtitle">
+          Análisis riguroso de ejercicios en <em>species counterpoint</em>.
+          Entregue su manuscrito en formato MusicXML y reciba la partitura
+          anotada y su informe académico.
+        </p>
+      </header>
+
+      <section class="console" aria-labelledby="form-heading">
+        <h2 id="form-heading" class="console__heading">El Ejercicio</h2>
+
+        <form id="analyze-form" class="form" novalidate>
+
+          <div class="field">
+            <label class="field__label" for="file">
+              Manuscrito <span class="field__hint">(.musicxml / .xml)</span>
+            </label>
+            <label class="dropzone" for="file" id="dropzone">
+              <svg class="dropzone__icon" viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
+                <path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"
+                  d="M12 16V4m0 0L8 8m4-4 4 4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+              </svg>
+              <span class="dropzone__text" id="dropzone-text">
+                Pulse para seleccionar &mdash; o arrastre el archivo aquí
+              </span>
+              <input
+                class="dropzone__input"
+                type="file"
+                id="file"
+                name="file"
+                accept=".musicxml,.xml,application/xml,text/xml"
+                required
+              />
+            </label>
+            <p class="field__error" id="file-error" role="alert" hidden></p>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="especie">Especie</label>
+            <div class="select-frame">
+              <select class="select" id="especie" name="especie" required>
+                <option value="primera">Primera especie &mdash; nota contra nota</option>
+                <option value="segunda">Segunda especie &mdash; dos contra una</option>
+              </select>
+              <svg class="select__chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+              </svg>
+            </div>
+          </div>
+
+          <button class="submit" id="submit" type="submit">
+            <span class="submit__label">Someter a Análisis</span>
+            <span class="submit__spinner" aria-hidden="true"></span>
+          </button>
+
+        </form>
+      </section>
+
+      <section class="results" id="results" aria-live="polite" aria-atomic="false">
+        <!-- Loading state, errors, and PDF download links are injected here by app.js -->
+      </section>
+
+      <footer class="colophon">
+        <div class="rule" aria-hidden="true"></div>
+        <p>Cátedra de Análisis Musical &middot; Impreso para uso académico &middot; <span class="colophon__mark">✦</span></p>
+      </footer>
+
+    </article>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
