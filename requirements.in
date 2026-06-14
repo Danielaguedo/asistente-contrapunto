@@ -1,0 +1,7 @@
+# Core engine dependencies (decoupled MusicXML -> annotated PDF pipeline).
+# Compile pinned transitive deps with:  pip-compile requirements.in
+music21
+verovio
+cairosvg
+reportlab
+Pillow

@@ -93,7 +93,18 @@ def analizar_figuras_disonantes_2da_especie(cp_part_obj, cf_part_obj):
     
     cp_notes = [n for n in cp_part_obj.flatten().notes if isinstance(n, note.Note)]
     cf_flat = cf_part_obj.flatten()
-    
+    # Solo notas reales del CF: descarta SystemLayout, Clef, TimeSignature, etc.
+    cf_notes = [n for n in cf_flat.notes if isinstance(n, note.Note)]
+
+    # Dirección de referencia (inicio) calculada UNA sola vez y de forma segura.
+    # Antes se usaba cf_flat[0], que podía ser un SystemLayout -> AttributeError 'pitch'.
+    direccion_referencia = None
+    if cf_notes and cp_notes:
+        try:
+            direccion_referencia = interval.Interval(cf_notes[0], cp_notes[0]).direction
+        except Exception:
+            direccion_referencia = None
+
     for i in range(len(cp_notes)):
         cp_curr = cp_notes[i]
         cf_simultaneas = cf_flat.getElementsByOffset(cp_curr.offset, mustBeginInSpan=False, classList=[note.Note])
@@ -111,7 +122,7 @@ def analizar_figuras_disonantes_2da_especie(cp_part_obj, cf_part_obj):
         try:
             # Si es intervalo negativo (ej. -P5), hubo cruce
             int_cruce = interval.Interval(cf_curr, cp_curr)
-            if int_cruce.direction != interval.Interval(cf_flat[0], cp_notes[0]).direction: 
+            if direccion_referencia is not None and int_cruce.direction != direccion_referencia:
                 # Comparación simple: si la dirección del intervalo cambia respecto al inicio, hubo cruce
                 # (Asumiendo que no cruzan en la primera nota)
                 errores.append(f"Compás {cp_curr.measureNumber}: Cruce de voces detectado ({int_cruce.niceName}). Evitar cruces.")

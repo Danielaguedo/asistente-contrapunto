@@ -29,4 +29,4 @@ for nombre, url in urls.items():
     except Exception as e:
         print(f"   ❌ ERROR de conexión: {e}")
 
-print("\nSi ambos archivos tienen check verde ✅, ejecuta 'streamlit run app.py'")
+print("\nSi ambos archivos tienen check verde ✅, ya puedes ejecutar 'python cli_runner.py <archivo.musicxml>'")

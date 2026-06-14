@@ -1,6 +1,5 @@
 # primera_especie/analisis.py (Actualizado v2 - Con soporte para SVG y Flechas)
 
-import streamlit as st 
 from primera_especie.reglas import analizar_reglas_contrapunto
 from music21 import note as m21note, interval
 import traceback 
