@@ -24,3 +24,4 @@ env/
 # --- Carpetas de salida específicas ---
 debug_output/
 material_didactico_output/
+.aider*

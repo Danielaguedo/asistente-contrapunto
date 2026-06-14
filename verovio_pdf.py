@@ -1,14 +1,14 @@
-# verovio_pdf.py (v12 - Configuración A4 Horizontal Limpia)
+# verovio_pdf.py (v17 - Modo Local Seguro: Adiós WinError 32 y Fuentes Locales)
 
 import os
 import verovio
 import cairosvg
-import tempfile
 import shutil
 import traceback
 import xml.etree.ElementTree as ET 
 import re 
 from music21 import note as m21note
+import time
 
 SVG_NS_VEROVIO = "http://www.w3.org/2000/svg"
 ET.register_namespace('', SVG_NS_VEROVIO)
@@ -32,6 +32,7 @@ def _get_note_svg_coords(svg_root_et, note_element_g):
     except: pass 
     return None
 
+# Importaciones dinámicas
 ANNOTATION_FUNC_1RA_LOADED = False
 try:
     from primera_especie.anotador_svg_intervalos import anotar_svg_con_intervalos_primera_especie
@@ -47,17 +48,12 @@ except ImportError: pass
 def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
     print(f"--- DEBUG (SVG Gen): Iniciando generar_svg_de_musicxml ---")
     
-    # --- CONFIGURACIÓN A4 LANDSCAPE ESTÁNDAR ---
     if verovio_options_dict is None: 
         verovio_options_dict = {
-            "pageWidth": 2970,        # A4 Landscape ancho
-            "pageHeight": 2100,       # A4 Landscape alto
-            "scale": 50,              # Escala 50 (Estándar y legible para landscape)
+            "pageWidth": 2970, "pageHeight": 2100, "scale": 50,
             "adjustPageHeight": True, 
-            "pageMarginTop": 100, 
-            "pageMarginBottom": 100, 
-            "pageMarginLeft": 100, 
-            "pageMarginRight": 100, 
+            "pageMarginTop": 100, "pageMarginBottom": 100, 
+            "pageMarginLeft": 100, "pageMarginRight": 100, 
             "header": "none", "footer": "none", "breaks": "auto", "svgHtml5": True
         }
     
@@ -66,12 +62,21 @@ def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
     
     try:
         tk = verovio.toolkit()
-        try:
-            data_path = os.path.join(os.path.dirname(verovio.__file__), "data")
-            if not os.path.exists(data_path): data_path = "/usr/local/share/verovio/data"
-            if os.path.exists(data_path): tk.setResourcePath(data_path)
-        except: pass
         
+        # --- CARGA DE FUENTES LOCALES (PRIORIDAD ABSOLUTA) ---
+        # Buscamos la carpeta 'data' exactamente donde estamos ejecutando el script
+        ruta_data_local = os.path.join(os.getcwd(), "data")
+        
+        if os.path.exists(ruta_data_local) and os.path.isdir(ruta_data_local):
+            # Verificar que los archivos existan
+            if os.path.exists(os.path.join(ruta_data_local, "Bravura.woff")):
+                tk.setResourcePath(ruta_data_local)
+                print(f"✅ DEBUG: Fuentes cargadas desde: {ruta_data_local}")
+            else:
+                print(f"⚠️ DEBUG: La carpeta data existe pero no tiene Bravura.woff")
+        else:
+            print(f"❌ ADVERTENCIA: No se encontró la carpeta '{ruta_data_local}'")
+
         tk.setOptions(verovio_options_dict)
         with open(musicxml_path, "r", encoding="utf-8") as f: tk.loadData(f.read())
         svg_content_str = tk.renderToSVG(1).replace('overflow="inherit"', 'overflow="visible"')
@@ -83,14 +88,22 @@ def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
         
     return svg_content_str, error_msg
 
-def convertir_svg_a_pdf_tempfile(svg_content, dpi=96):
-    tmp_path = None
+def convertir_svg_a_pdf_local(svg_content, dpi=96):
+    """
+    Crea un archivo PDF local en la misma carpeta para evitar bloqueos de Windows.
+    """
+    nombre_seguro = "temp_partitura_generada.pdf"
+    
+    # Asegurarnos de que no exista o que se pueda borrar
+    if os.path.exists(nombre_seguro):
+        try: os.remove(nombre_seguro)
+        except: pass 
+        
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp_path = tmp.name
-        cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=tmp_path, dpi=dpi)
-        return tmp_path
-    except:
-        if tmp_path: os.remove(tmp_path)
+        cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=nombre_seguro, dpi=dpi)
+        return nombre_seguro
+    except Exception as e:
+        print(f"Error CairoSVG: {e}")
         return None
 
 def generar_pdf_partitura(musicxml_path, output_pdf="partitura.pdf", verovio_options=None,
@@ -101,6 +114,7 @@ def generar_pdf_partitura(musicxml_path, output_pdf="partitura.pdf", verovio_opt
     if err: print(err)
     final_svg = svg_str 
 
+    # Lógica de anotación
     if score_m21_obj and (ANNOTATION_FUNC_1RA_LOADED or ANNOTATION_FUNC_2DA_LOADED):
         svg_et = None
         try:
@@ -144,8 +158,16 @@ def generar_pdf_partitura(musicxml_path, output_pdf="partitura.pdf", verovio_opt
                 except: traceback.print_exc()
             if annotated: final_svg = annotated
     
-    pdf_path = convertir_svg_a_pdf_tempfile(final_svg)
-    if pdf_path:
-        try: shutil.copy2(pdf_path, output_pdf); return output_pdf
-        except: pass
+    # Generación Local Segura
+    pdf_local = convertir_svg_a_pdf_local(final_svg)
+    
+    if pdf_local and os.path.exists(pdf_local):
+        try:
+            time.sleep(0.1) 
+            shutil.copy2(pdf_local, output_pdf)
+            return output_pdf
+        except Exception as e:
+            print(f"Error copiando PDF final: {e}")
+            return pdf_local
+    
     return None
