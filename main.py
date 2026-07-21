@@ -4,11 +4,13 @@
 # Arranque:  uvicorn main:app --reload
 
 import os
+import secrets
 import shutil
 import tempfile
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 import cli_runner
 
@@ -33,14 +35,33 @@ PROCESADORES = {
     "segunda": cli_runner.procesar_segunda,
 }
 
+# Registro efimero token -> ruta de PDF (en memoria; se pierde al reiniciar el
+# proceso). Suficiente para el uso local monomaquina: convierte rutas de servidor
+# en URLs descargables sin exponer el filesystem.
+_PDF_REGISTRY: dict[str, str] = {}
+
+
+def _registrar_descarga(path: str) -> str:
+    token = secrets.token_urlsafe(16)
+    _PDF_REGISTRY[token] = path
+    return token
+
 
 @app.get("/")
 def health():
     return {"status": "ok", "service": "asistente-contrapunto", "especies": list(PROCESADORES)}
 
 
+@app.get("/download/{token}")
+def download(token: str):
+    path = _PDF_REGISTRY.get(token)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Documento no encontrado o expirado.")
+    return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
+
+
 @app.post("/analyze/")
-async def analyze(file: UploadFile = File(...), especie: str = Form(...)):
+async def analyze(request: Request, file: UploadFile = File(...), especie: str = Form(...)):
     especie = (especie or "").strip().lower()
     if especie not in PROCESADORES:
         raise HTTPException(
@@ -77,10 +98,18 @@ async def analyze(file: UploadFile = File(...), especie: str = Form(...)):
     if not (ruta_pdf and os.path.exists(ruta_pdf)):
         raise HTTPException(status_code=500, detail="No se genero el PDF anotado.")
 
+    annotated_token = _registrar_descarga(ruta_pdf)
+    report_exists = os.path.exists(report_pdf)
+    report_token = _registrar_descarga(report_pdf) if report_exists else None
+
+    base = str(request.base_url).rstrip("/")
     return {
         "status": "ok",
         "especie": especie,
+        "annotated_url": f"{base}/download/{annotated_token}",
+        "report_url": f"{base}/download/{report_token}" if report_token else None,
+        # Rutas de servidor conservadas solo para depuracion local.
         "input_file": input_path,
         "annotated_pdf": ruta_pdf,
-        "report_pdf": report_pdf if os.path.exists(report_pdf) else None,
+        "report_pdf": report_pdf if report_exists else None,
     }

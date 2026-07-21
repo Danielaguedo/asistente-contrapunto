@@ -25,18 +25,23 @@ Strict, non-negotiable rules for this project. Read before adding code.
   {
     "status": "ok",
     "especie": "primera",
-    "input_file": "<server path>",
-    "annotated_pdf": "<server path>",
-    "report_pdf": "<server path | null>"
+    "annotated_url": "http://localhost:8000/download/<token>",
+    "report_url": "http://localhost:8000/download/<token> | null",
+    "input_file": "<server path — debug only>",
+    "annotated_pdf": "<server path — debug only>",
+    "report_pdf": "<server path | null — debug only>"
   }
   ```
 - **Errors:** `422` (unsupported especie / invalid input), `500` (pipeline failure).
 
-> ⚠️ **Known limitation:** `annotated_pdf` / `report_pdf` are absolute paths on
-> the **server filesystem**, not downloadable URLs. This is fine for the local
-> single-machine workflow (frontend + backend on the same box). If this ever
-> ships to two machines, add a `GET /download/{token}` static-serving route to
-> the backend; the frontend already isolates this in one function (`renderPdf`).
+`GET /download/{token}`
+
+- Serves a generated PDF as `application/pdf` (`FileResponse`). Returns `404` if
+  the token is unknown or the file no longer exists.
+- Tokens map to server paths in an **in-memory registry** (`_PDF_REGISTRY`), so
+  they are lost on process restart — fine for the local single-machine workflow.
+  The `*_pdf` fields in the `/analyze/` response are kept only for local debugging;
+  clients should use `annotated_url` / `report_url`.
 
 ---
 

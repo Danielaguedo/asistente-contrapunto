@@ -143,13 +143,12 @@ function renderError(message) {
 }
 
 function renderResults(payload) {
-  // Backend returns absolute server filesystem paths, not URLs. On a local
-  // single-machine setup, file:// links resolve them; we also surface the raw
-  // path so it can be copied if the browser blocks file:// from http origins.
+  // Backend returns real download URLs (GET /download/{token}), served by the
+  // API as application/pdf. No more file:// paths.
   const plates = [
-    { name: "Partitura Anotada", path: payload.annotated_pdf, seal: "I" },
-    { name: "Informe Académico", path: payload.report_pdf, seal: "II" },
-  ].filter((p) => p.path);
+    { name: "Partitura Anotada", url: payload.annotated_url, seal: "I" },
+    { name: "Informe Académico", url: payload.report_url, seal: "II" },
+  ].filter((p) => p.url);
 
   if (plates.length === 0) {
     renderError("El análisis finalizó pero no se generó ningún PDF.");
@@ -158,12 +157,11 @@ function renderResults(payload) {
 
   const items = plates.map((p) => `
     <li>
-      <a class="plate" href="${fileUrl(p.path)}" target="_blank" rel="noopener"
-         title="${escapeHtml(p.path)}">
+      <a class="plate" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">
         <span class="plate__seal" aria-hidden="true">${p.seal}</span>
         <span class="plate__body">
           <span class="plate__name">${escapeHtml(p.name)}</span>
-          <span class="plate__path">${escapeHtml(p.path)}</span>
+          <span class="plate__path">Descargar PDF</span>
         </span>
       </a>
     </li>`).join("");
@@ -172,20 +170,13 @@ function renderResults(payload) {
     <div class="panel" role="status">
       <h2 class="panel__title">Dictamen &middot; Especie ${escapeHtml(payload.especie || "")}</h2>
       <ul class="plates">${items}</ul>
-      <p class="note">Si el enlace no abre, copie la ruta y ábrala desde su lector de PDF.</p>
+      <p class="note">Los documentos se abren en una pestaña nueva desde el servidor local.</p>
     </div>`;
 }
 
 /* -------------------------------------------------------------------------
    Utilities
    ------------------------------------------------------------------------- */
-function fileUrl(serverPath) {
-  // Convert a Windows/POSIX path into a file:// URL.
-  const normalized = serverPath.replace(/\\/g, "/");
-  const withSlash = normalized.startsWith("/") ? normalized : "/" + normalized;
-  return "file://" + encodeURI(withSlash);
-}
-
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
