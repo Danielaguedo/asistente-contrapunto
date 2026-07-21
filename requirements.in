@@ -1,9 +1,9 @@
 # Core engine dependencies (decoupled MusicXML -> annotated PDF pipeline).
 # Compile pinned transitive deps with:  pip-compile requirements.in
-music21
-verovio
-cairosvg
-reportlab
+music21==9.5.0
+verovio==5.7.0
+cairosvg==2.8.2
+reportlab==4.3.1
 Pillow
 
 # Backend API (Phase 2 - FastAPI).
