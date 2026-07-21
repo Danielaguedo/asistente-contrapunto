@@ -40,7 +40,7 @@
       Pendiente separado.
 - [ ] Nice-to-have: el título automático de music21 se recorta a la izquierda del
       lienzo en el PDF. Cosmético (suprimir el título o ajustar márgenes/viewBox).
-- [ ] README con instrucciones de arranque (backend + frontend).
+- [x] README con instrucciones de arranque (backend + frontend). Ver `README.md`.
 - [ ] Ajustar `.gitignore` y añadir `samples/` con MusicXML de ejemplo por especie.
 - [ ] Suite mínima de tests (pytest) sobre ambos pipelines.
 - [ ] Endurecer `verovio_pdf.py`: temp con nombre único (concurrencia),
