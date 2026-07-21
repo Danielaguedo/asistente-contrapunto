@@ -8,6 +8,7 @@
 
 import argparse
 import os
+import re
 import sys
 import tempfile
 import datetime
@@ -50,8 +51,15 @@ def _normalizar_part_ids(score):
 
 
 def _asignar_ids_notas(part):
-    """Asigna IDs estables a cada nota (necesario para anotar el SVG por id)."""
-    prefix = part.id
+    """Asigna IDs estables a cada nota (necesario para anotar el SVG por id).
+
+    El prefijo debe ser un xml:id valido (sin espacios ni caracteres especiales,
+    sin empezar por digito). Si no, Verovio descarta el id al renderizar y genera
+    uno aleatorio, rompiendo el mapeo de coordenadas del anotador.
+    """
+    prefix = re.sub(r"[^A-Za-z0-9_-]", "_", str(part.id))
+    if not prefix or not (prefix[0].isalpha() or prefix[0] == "_"):
+        prefix = f"p_{prefix}"
     idx = 0
     for element in part.recurse().getElementsByClass(m21note.GeneralNote):
         if element.isNote:

@@ -24,8 +24,6 @@ colorama==0.4.6
     # via click
 contourpy==1.3.1
     # via matplotlib
-cssselect2==0.8.0
-    # via svglib
 cycler==0.12.1
     # via matplotlib
 fastapi==0.139.2
@@ -44,8 +42,6 @@ jsonpickle==4.0.2
     # via music21
 kiwisolver==1.4.8
     # via matplotlib
-lxml==6.1.1
-    # via svglib
 matplotlib==3.10.1
     # via music21
 more-itertools==10.6.0
@@ -75,21 +71,15 @@ python-dateutil==2.9.0.post0
 python-multipart==0.0.32
     # via -r requirements.in
 reportlab==4.3.1
-    # via
-    #   -r requirements.in
-    #   svglib
+    # via -r requirements.in
 requests==2.32.3
     # via music21
+resvg-py==0.3.3
+    # via -r requirements.in
 six==1.17.0
     # via python-dateutil
 starlette==1.3.1
     # via fastapi
-svglib==1.5.1
-    # via -r requirements.in
-tinycss2==1.5.1
-    # via
-    #   cssselect2
-    #   svglib
 typing-extensions==4.12.2
     # via
     #   anyio
@@ -110,7 +100,3 @@ verovio==5.7.0
     # via -r requirements.in
 webcolors==24.11.1
     # via music21
-webencodings==0.5.1
-    # via
-    #   cssselect2
-    #   tinycss2

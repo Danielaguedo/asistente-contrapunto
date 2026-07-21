@@ -96,8 +96,14 @@ def _get_note_svg_coords(svg_root, note_id_m21_value, search_attr="data-id"):
                     if x_attr is not None and y_attr is not None:
                         try:
                             return {'x': float(x_attr), 'y': float(y_attr)}
-                        except ValueError: pass 
-            
+                        except ValueError: pass
+                    # Verovio 4/5+: la posicion del notehead esta en el transform del <use>.
+                    use_transform = use_element.get('transform')
+                    if use_transform:
+                        m = re.search(r"translate\(\s*([-\d.]+)[,\s]+([-\d.]+)", use_transform)
+                        if m:
+                            return {'x': float(m.group(1)), 'y': float(m.group(2))}
+
             transform_attr = target_element_note_group.get('transform')
             if transform_attr and "translate" in transform_attr:
                 try:

@@ -9,8 +9,9 @@ import xml.etree.ElementTree as ET
 import re
 from music21 import note as m21note
 import time
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPDF
+import resvg_py
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.lib.utils import ImageReader
 
 SVG_NS_VEROVIO = "http://www.w3.org/2000/svg"
 ET.register_namespace('', SVG_NS_VEROVIO)
@@ -26,7 +27,12 @@ def _get_note_svg_coords(svg_root_et, note_element_g):
             if use_element is not None:
                 x = use_element.get('x'); y = use_element.get('y')
                 if x and y: return {'x': float(x), 'y': float(y)}
-        
+                # Verovio 4/5+: posicion en transform="translate(x,y) ..." del <use>.
+                use_tr = use_element.get('transform')
+                if use_tr:
+                    m = re.search(r"translate\(\s*([-\d.]+)[,\s]+([-\d.]+)", use_tr)
+                    if m: return {'x': float(m.group(1)), 'y': float(m.group(2))}
+
         transform = note_element_g.get('transform')
         if transform and "translate" in transform:
             match = re.search(r"translate\(\s*([-\d\.]+)\s*[, ]?\s*([-\d\.]+)\s*\)", transform)
@@ -90,14 +96,15 @@ def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
         
     return svg_content_str, error_msg
 
-def convertir_svg_a_pdf_local(svg_content):
+def convertir_svg_a_pdf_local(svg_content, zoom=3.0):
     """
-    Convierte el SVG a PDF con svglib + reportlab (ruta pura Python).
+    Convierte el SVG a PDF: resvg (SVG -> PNG) + reportlab (PNG -> PDF).
 
-    Reemplaza a cairosvg, que en Windows fallaba con CAIRO_STATUS_WIN32_GDI_ERROR
-    al rasterizar los elementos <text> del SVG a traves del backend de fuentes
-    Win32/GDI. svglib no usa GDI y renderiza correctamente los glifos SMuFL de
-    Verovio (via <use>) ademas del texto.
+    resvg (motor Rust) renderiza correctamente los glifos SMuFL de Verovio (via
+    <use>), el escalado del <svg viewBox> anidado y las anotaciones (texto/lineas).
+    Historial: cairosvg fallaba con GDI en Windows; svglib no aplicaba el escalado
+    del viewBox anidado (partitura rota). El PDF resultante es raster de alta
+    resolucion (zoom por defecto 3x); el informe textual sigue siendo vectorial.
     """
     nombre_seguro = "temp_partitura_generada.pdf"
 
@@ -107,16 +114,18 @@ def convertir_svg_a_pdf_local(svg_content):
         except: pass
 
     try:
-        # BytesIO (no StringIO): el SVG de Verovio lleva declaracion de encoding,
-        # y lxml rechaza str unicode con encoding declarado.
-        drawing = svg2rlg(io.BytesIO(svg_content.encode("utf-8")))
-        if drawing is None:
-            print("Error svglib: no se pudo parsear el SVG.")
-            return None
-        renderPDF.drawToFile(drawing, nombre_seguro)
+        png_bytes = bytes(resvg_py.svg_to_bytes(
+            svg_string=svg_content, zoom=zoom, background="#ffffff"))
+        img = ImageReader(io.BytesIO(png_bytes))
+        iw, ih = img.getSize()            # pixeles renderizados (a 'zoom')
+        pw, ph = iw / zoom, ih / zoom     # tamano logico en puntos
+        c = rl_canvas.Canvas(nombre_seguro, pagesize=(pw, ph))
+        c.drawImage(img, 0, 0, width=pw, height=ph)
+        c.showPage()
+        c.save()
         return nombre_seguro
     except Exception as e:
-        print(f"Error svglib->PDF: {e}")
+        print(f"Error resvg->PDF: {e}")
         traceback.print_exc()
         return None
 
