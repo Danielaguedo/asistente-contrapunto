@@ -7,9 +7,9 @@
   directo, inicio/final, cruces, repeticiones) + análisis melódico y entre voces.
 - **Segunda especie**: reglas completas (disonancias en tiempo débil, nota de paso,
   paralelas fuerte-a-fuerte, unísonos, cruces).
-- **Generación de PDFs**: informe textual (reportlab) OK. La partitura anotada
-  (Verovio→SVG→cairosvg) **está bloqueada en Windows** por un error de GDI en
-  cairosvg (ver Riesgos).
+- **Generación de PDFs**: informe textual (reportlab) OK. Partitura anotada
+  (Verovio→SVG→**svglib**→reportlab) OK — verificada end-to-end por CLI y API
+  (analyze → download → PDF válido). Antes fallaba con cairosvg en Windows.
 - **API FastAPI** (`main.py`): `POST /analyze/` con contrato documentado.
 - **Frontend** (HTML/CSS/JS vanilla, estética Barroca): completo, accesible,
   con dropzone y manejo de estados.
@@ -28,14 +28,18 @@
 - [x] Añadir ruta `GET /download/{token}` para servir PDFs como archivos
       descargables. `/analyze/` devuelve `annotated_url`/`report_url`; frontend
       y ARCHITECTURE.md actualizados. Verificado en aislamiento (200/404) ✅.
-- [ ] **[ALTA] Render SVG→PDF roto en Windows**: cairosvg lanza
-      `CAIRO_STATUS_WIN32_GDI_ERROR` al convertir el SVG de Verovio → no se genera
-      el PDF anotado (el entregable principal). Evaluar cambio de backend de render
-      o sustituir cairosvg. Bloquea la demo end-to-end.
+- [x] **Render SVG→PDF (antes [ALTA])**: resuelto. Causa raíz — cairosvg
+      rasterizaba los `<text>` del SVG vía el backend de fuentes Win32/GDI, que
+      lanzaba `CAIRO_STATUS_WIN32_GDI_ERROR` en Windows. Solución — sustituido
+      cairosvg por **svglib→reportlab** en `verovio_pdf.py` (puro Python, sin GDI;
+      renderiza glifos SMuFL vía `<use>` y texto). Verificado end-to-end.
 - [ ] Bug del anotador (`verovio_pdf.py`): no logra mapear las coordenadas de las
       notas (los selectores `data-class` no coinciden con la salida actual de
-      Verovio) → no se dibujan intervalos/flechas. Secundario, relacionado con lo
-      anterior.
+      Verovio) → **las anotaciones de intervalo y flechas no se dibujan**. El
+      pentagrama, claves y notas sí salen; faltan solo los overlays didácticos.
+      Pendiente separado.
+- [ ] Nice-to-have: el título automático de music21 se recorta a la izquierda del
+      lienzo en el PDF. Cosmético (suprimir el título o ajustar márgenes/viewBox).
 - [ ] README con instrucciones de arranque (backend + frontend).
 - [ ] Ajustar `.gitignore` y añadir `samples/` con MusicXML de ejemplo por especie.
 - [ ] Suite mínima de tests (pytest) sobre ambos pipelines.
@@ -53,10 +57,8 @@
 - **Balance de dependencias**: resuelto (regenerado con pip-compile). Nota: el venv
   aún contiene `aider-chat` y `streamlit` viejos → warnings de conflicto de pip
   inofensivos; limpiar el venv es opcional.
-- **[ALTA] cairosvg / GDI en Windows**: la conversión SVG→PDF falla con
-  `CAIRO_STATUS_WIN32_GDI_ERROR` → **no se genera el PDF anotado**, el entregable
-  principal. Bloquea el objetivo de demo. El informe textual (reportlab) no se ve
-  afectado. Siguiente foco de trabajo.
+- **cairosvg / GDI en Windows**: resuelto — sustituido por svglib→reportlab
+  (ver Pendiente). El PDF anotado ya se genera end-to-end.
 - **Entrega de PDF en el navegador**: resuelto — `GET /download/{token}` sirve los
   PDFs como `application/pdf`; ya no se usan enlaces `file://`.
 - **Concurrencia**: `verovio_pdf.py` escribe a un nombre de archivo fijo →

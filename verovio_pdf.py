@@ -1,14 +1,16 @@
 # verovio_pdf.py (v17 - Modo Local Seguro: Adiós WinError 32 y Fuentes Locales)
 
 import os
+import io
 import verovio
-import cairosvg
 import shutil
 import traceback
-import xml.etree.ElementTree as ET 
-import re 
+import xml.etree.ElementTree as ET
+import re
 from music21 import note as m21note
 import time
+from svglib.svglib import svg2rlg
+from reportlab.graphics import renderPDF
 
 SVG_NS_VEROVIO = "http://www.w3.org/2000/svg"
 ET.register_namespace('', SVG_NS_VEROVIO)
@@ -88,22 +90,34 @@ def generar_svg_de_musicxml(musicxml_path, verovio_options_dict=None):
         
     return svg_content_str, error_msg
 
-def convertir_svg_a_pdf_local(svg_content, dpi=96):
+def convertir_svg_a_pdf_local(svg_content):
     """
-    Crea un archivo PDF local en la misma carpeta para evitar bloqueos de Windows.
+    Convierte el SVG a PDF con svglib + reportlab (ruta pura Python).
+
+    Reemplaza a cairosvg, que en Windows fallaba con CAIRO_STATUS_WIN32_GDI_ERROR
+    al rasterizar los elementos <text> del SVG a traves del backend de fuentes
+    Win32/GDI. svglib no usa GDI y renderiza correctamente los glifos SMuFL de
+    Verovio (via <use>) ademas del texto.
     """
     nombre_seguro = "temp_partitura_generada.pdf"
-    
+
     # Asegurarnos de que no exista o que se pueda borrar
     if os.path.exists(nombre_seguro):
         try: os.remove(nombre_seguro)
-        except: pass 
-        
+        except: pass
+
     try:
-        cairosvg.svg2pdf(bytestring=svg_content.encode("utf-8"), write_to=nombre_seguro, dpi=dpi)
+        # BytesIO (no StringIO): el SVG de Verovio lleva declaracion de encoding,
+        # y lxml rechaza str unicode con encoding declarado.
+        drawing = svg2rlg(io.BytesIO(svg_content.encode("utf-8")))
+        if drawing is None:
+            print("Error svglib: no se pudo parsear el SVG.")
+            return None
+        renderPDF.drawToFile(drawing, nombre_seguro)
         return nombre_seguro
     except Exception as e:
-        print(f"Error CairoSVG: {e}")
+        print(f"Error svglib->PDF: {e}")
+        traceback.print_exc()
         return None
 
 def generar_pdf_partitura(musicxml_path, output_pdf="partitura.pdf", verovio_options=None,

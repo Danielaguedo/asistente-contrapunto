@@ -2,7 +2,7 @@
 # Compile pinned transitive deps with:  pip-compile requirements.in
 music21==9.5.0
 verovio==5.7.0
-cairosvg==2.8.2
+svglib
 reportlab==4.3.1
 Pillow
 
